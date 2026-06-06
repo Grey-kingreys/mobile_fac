@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "flutter": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "flutter/SKILL.md",
+      "computedHash": "09acbc34217636a5c4d78321cd483338370d2c905f6bbd45e656e2b85cac60fb"
+    }
+  }
+}

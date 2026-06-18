@@ -5,10 +5,12 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.10.0
+  sdk: '>=3.5.0 <4.0.0'
 
 dependencies:
   flutter:
+    sdk: flutter
+  flutter_localizations:
     sdk: flutter
 
   # State management
@@ -38,15 +40,22 @@ dependencies:
   signature: ^5.4.0               # Signature numérique de réception
   geolocator: ^12.0.0             # GPS tracking missions (polling 1 min)
   fl_chart: ^0.68.0               # Graphiques dashboard
-  intl: ^0.19.0                   # Formatage dates, devises (GNF, USD, EUR)
+  intl: ^0.20.0                   # Formatage dates, devises (GNF, USD, EUR)
   pdf: ^3.11.0                    # Génération bons de livraison PDF
   open_filex: ^4.3.4              # Ouverture PDF générés
+
+  # Système de fichiers (chemin temp pour PDF)
+  path_provider: ^2.1.4
 
   # Utilitaires
   freezed_annotation: ^2.4.1
   json_annotation: ^4.9.0
   equatable: ^2.0.5
   connectivity_plus: ^6.0.3       # Mode offline (CDC 6.3)
+
+  # Cartographie (zones, dépôts, logistique)
+  flutter_map: ^7.0.2             # OpenStreetMap — gratuit, sans clé API
+  latlong2: ^0.9.1                # Types LatLng compatibles flutter_map
 
 dev_dependencies:
   flutter_test:
@@ -56,6 +65,18 @@ dev_dependencies:
   freezed: ^2.5.2
   json_serializable: ^6.8.0
   riverpod_generator: ^2.4.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#1A56A0"
+  adaptive_icon_foreground: "assets/images/logo.png"
+  remove_alpha_ios: true
+  web:
+    generate: false
 
 flutter:
   uses-material-design: true

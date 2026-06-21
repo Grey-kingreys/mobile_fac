@@ -20,11 +20,12 @@ class AdminRemoteDatasource {
         if (search != null && search.isNotEmpty) 'search': search,
       },
     );
-    // Format: {success, data: {count, results: [...]}, message}
+    // Format backend : {success, data: {count, companies: [...]}, message}
+    // (le backend renvoie la clé `companies`, pas `results`).
     final outer = res.data ?? {};
     final inner = outer['data'] as Map<String, dynamic>? ?? outer;
     final count = inner['count'] as int? ?? 0;
-    final list = (inner['results'] as List<dynamic>? ?? [])
+    final list = ((inner['companies'] ?? inner['results']) as List<dynamic>? ?? [])
         .map((e) => CompanyModel.fromJson(e as Map<String, dynamic>))
         .toList();
     return (count: count, companies: list);

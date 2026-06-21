@@ -5,7 +5,8 @@ abstract class TransactionModel {
     return TransactionEntity(
       id: json['id'] as int,
       type: json['type_transaction'] as String? ?? 'entree',
-      montant: (json['montant'] as num?) ?? 0,
+      // DecimalField DRF → string → parsing robuste.
+      montant: _num(json['montant']),
       description: json['description'] as String? ?? '',
       createdAt: DateTime.tryParse(
             json['created_at'] as String? ?? '',
@@ -15,4 +16,7 @@ abstract class TransactionModel {
       sessionId: null,
     );
   }
+
+  static num _num(dynamic v) =>
+      v is num ? v : (num.tryParse(v?.toString() ?? '') ?? 0);
 }

@@ -1,6 +1,8 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:djoulagest_mobile/core/di/providers.dart';
-import 'package:djoulagest_mobile/features/auth/presentation/providers/auth_provider.dart';
+import 'package:djoulagest_mobile/core/errors/app_exception.dart';
+import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/features/finance/data/datasources/finance_remote_datasource.dart';
 import 'package:djoulagest_mobile/features/finance/data/repositories/finance_repository_impl.dart';
 import 'package:djoulagest_mobile/features/finance/domain/entities/cash_session_entity.dart';
@@ -107,21 +109,38 @@ class FinanceNotifier extends AsyncNotifier<FinanceState> {
     }
   }
 
+  /// Ouvre une session de caisse.
+  ///
+  /// - **Caissier** : [caisseId] est `null` → la caisse est auto-résolue depuis
+  ///   le dépôt de l'utilisateur effectif (le caissier simulé le cas échéant).
+  /// - **Admin / superviseur** : [caisseId] est fourni explicitement (caisse
+  ///   choisie dans le sélecteur), parité avec le web qui propose une liste.
+  ///
   /// Retourne null si succès, sinon le message d'erreur.
-  Future<String?> openSession({required num soldeOuverture}) async {
+  Future<String?> openSession({
+    required num soldeOuverture,
+    int? caisseId,
+  }) async {
     try {
       final repo = ref.read(financeRepositoryProvider);
-      // Résoudre l'ID de la caisse physique liée au dépôt de l'utilisateur connecté.
-      final depotId = ref.read(authProvider).valueOrNull?.depotId;
-      if (depotId == null) {
-        return 'Aucun dépôt associé à votre compte. Contactez votre administrateur.';
-      }
-      final caisseId = await repo.getCaisseIdForDepot(depotId);
-      if (caisseId == null) {
-        return 'Aucune caisse physique trouvée pour ce dépôt. Contactez votre administrateur.';
+      var resolvedCaisseId = caisseId;
+      // Pas de caisse explicite (cas caissier) → la résoudre depuis le dépôt de
+      // l'utilisateur EFFECTIF (le caissier simulé le cas échéant, sinon
+      // l'utilisateur réellement connecté). Lire authProvider ici renverrait le
+      // dépôt de l'admin (null) pendant une simulation.
+      if (resolvedCaisseId == null) {
+        final depotId = ref.read(effectiveUserProvider)?.depotId;
+        if (depotId == null) {
+          return 'Aucun dépôt associé à votre compte. Contactez votre administrateur.';
+        }
+        resolvedCaisseId = await repo.getCaisseIdForDepot(depotId);
+        if (resolvedCaisseId == null) {
+          return 'Aucune caisse ouverte pour ce dépôt. '
+              "L'administrateur doit en créer/ouvrir une avant toute session.";
+        }
       }
       final session = await repo.openSession(
-        caisseId: caisseId,
+        caisseId: resolvedCaisseId,
         soldeOuverture: soldeOuverture,
       );
       final current = state.valueOrNull ?? const FinanceState();
@@ -163,6 +182,15 @@ class FinanceNotifier extends AsyncNotifier<FinanceState> {
   }
 
   String _msg(Object e) {
+    // Surfacer le vrai message du backend (ex. « Caisse introuvable ou inactive »,
+    // « La caisse est déjà ouverte (session #X) ») au lieu du DioException brut.
+    if (e is DioException) {
+      final inner = e.error;
+      if (inner is ValidationException && inner.fieldErrors.isNotEmpty) {
+        return inner.fieldErrors.values.first.first;
+      }
+      if (inner is AppException) return inner.message;
+    }
     final s = e.toString();
     return s.startsWith('Exception: ') ? s.substring(11) : s;
   }

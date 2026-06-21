@@ -370,6 +370,8 @@ class _SoldeCard extends StatelessWidget {
               children: [
                 Text(
                   nom,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: AppSizes.fontSm,
@@ -378,6 +380,8 @@ class _SoldeCard extends StatelessWidget {
                 ),
                 Text(
                   sub,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                       fontSize: AppSizes.fontXs, color: AppColors.gray400),
                 ),

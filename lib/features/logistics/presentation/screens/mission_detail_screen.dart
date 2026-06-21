@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
 import 'package:djoulagest_mobile/core/router/app_routes.dart';
@@ -116,6 +120,12 @@ class _MissionDetailBodyState extends ConsumerState<_MissionDetailBody> {
     // une résolution via signature avant toute clôture, règle universelle §7).
     final canTerminer =
         (role == 'admin' || role == 'superviseur') && mission.isArrive;
+    // Le QR est montré à celui qui pilote la mission (pas au chauffeur, qui le
+    // scanne). Seules les missions Planifiées sont scannables (back_fac).
+    final canShowQr = (role == 'admin' ||
+            role == 'superviseur' ||
+            role == 'gestionnaire_stock') &&
+        mission.isPlanifiee;
 
     return RefreshIndicator(
       onRefresh: () async =>
@@ -258,11 +268,14 @@ class _MissionDetailBodyState extends ConsumerState<_MissionDetailBody> {
                           Expanded(
                             child: Text(
                               l.produitNom,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                   fontSize: AppSizes.fontSm,
                                   color: AppColors.gray700),
                             ),
                           ),
+                          const SizedBox(width: AppSizes.sm),
                           Text(
                             AppFormatters.number(l.quantite, decimals: 0),
                             style: const TextStyle(
@@ -327,6 +340,12 @@ class _MissionDetailBodyState extends ConsumerState<_MissionDetailBody> {
                   ],
                 ),
               ),
+            ],
+
+            // ─── Afficher le QR (admin / superviseur / gestionnaire) ──────
+            if (canShowQr) ...[
+              const SizedBox(height: AppSizes.lg),
+              _ShowQrButton(mission: mission),
             ],
 
             // ─── Actions chauffeur ────────────────────────────────────────
@@ -474,6 +493,146 @@ class _TerminerButton extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(vertical: AppSizes.md),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppSizes.radiusMd)),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Bouton "Afficher le QR" + modale ─────────────────────────────────────────
+
+class _ShowQrButton extends StatelessWidget {
+  const _ShowQrButton({required this.mission});
+  final MissionEntity mission;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () => showDialog<void>(
+          context: context,
+          builder: (_) => _QrDialog(mission: mission),
+        ),
+        icon: const Icon(Icons.qr_code_2_rounded),
+        label: const Text('Afficher le QR de la mission'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.primary),
+          padding: const EdgeInsets.symmetric(vertical: AppSizes.md),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppSizes.radiusMd)),
+        ),
+      ),
+    );
+  }
+}
+
+class _QrDialog extends ConsumerWidget {
+  const _QrDialog({required this.mission});
+  final MissionEntity mission;
+
+  // Enregistre le PNG du QR puis l'ouvre dans le visionneur système
+  // (depuis lequel on peut imprimer / partager / enregistrer dans la galerie).
+  Future<void> _saveQr(BuildContext context, WidgetRef ref) async {
+    final b64 = ref.read(missionQrProvider(mission.id)).valueOrNull;
+    if (b64 == null || b64.isEmpty) return;
+    try {
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/QR-${mission.numero}.png');
+      await file.writeAsBytes(base64Decode(b64));
+      await OpenFilex.open(file.path);
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible d\'enregistrer le QR.'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final qrAsync = ref.watch(missionQrProvider(mission.id));
+    final hasQr = (qrAsync.valueOrNull?.isNotEmpty) ?? false;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSizes.radiusLg)),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSizes.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('QR Code mission',
+                style: TextStyle(
+                    fontSize: AppSizes.fontLg,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.gray900)),
+            const SizedBox(height: AppSizes.xs),
+            Text(mission.numero,
+                style: const TextStyle(
+                    fontSize: AppSizes.fontSm, color: AppColors.gray500)),
+            const SizedBox(height: AppSizes.lg),
+            SizedBox(
+              height: 220,
+              child: Center(
+                child: qrAsync.when(
+                  loading: () => const CircularProgressIndicator(),
+                  error: (_, __) => const Text(
+                    'Erreur lors de la génération du QR.',
+                    style: TextStyle(color: AppColors.danger),
+                  ),
+                  data: (b64) {
+                    if (b64.isEmpty) {
+                      return const Text('QR indisponible.',
+                          style: TextStyle(color: AppColors.gray500));
+                    }
+                    return Image.memory(base64Decode(b64), height: 220);
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSizes.md),
+            const Text(
+              'Le chauffeur scanne ce code pour démarrer le chargement.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: AppSizes.fontXs, color: AppColors.gray500),
+            ),
+            const SizedBox(height: AppSizes.md),
+            Row(
+              children: [
+                if (hasQr)
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _saveQr(context, ref),
+                      icon: const Icon(Icons.download_rounded, size: 18),
+                      label: const Text('Enregistrer'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding:
+                            const EdgeInsets.symmetric(vertical: AppSizes.sm + 2),
+                        shape: RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(AppSizes.radiusMd)),
+                      ),
+                    ),
+                  ),
+                if (hasQr) const SizedBox(width: AppSizes.sm),
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Fermer'),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

@@ -44,8 +44,11 @@ abstract class DepotModel {
       'code': code,
       'zone_id': zoneId,
       if (adresse != null && adresse.isNotEmpty) 'address': adresse,
-      if (latitude != null) 'latitude': latitude,
-      if (longitude != null) 'longitude': longitude,
+      // Backend = DecimalField(max_digits=9, decimal_places=6) → max 6 décimales.
+      // Le sélecteur de carte renvoie un double haute précision : on arrondit
+      // sinon le backend renvoie 400 (« pas plus de 6 chiffres après la virgule »).
+      if (latitude != null) 'latitude': latitude.toStringAsFixed(6),
+      if (longitude != null) 'longitude': longitude.toStringAsFixed(6),
     };
   }
 }

@@ -262,6 +262,31 @@ class _InventairesScreenState extends ConsumerState<InventairesScreen> {
           : null,
       body: Column(
         children: [
+          // ── Note explicative ──────────────────────────────────────────────
+          Container(
+            margin: const EdgeInsets.fromLTRB(
+                AppSizes.paddingPage, AppSizes.sm, AppSizes.paddingPage, 0),
+            padding: const EdgeInsets.all(AppSizes.sm),
+            decoration: BoxDecoration(
+              color: AppColors.infoLightBg,
+              borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded, size: 16, color: AppColors.info),
+                SizedBox(width: AppSizes.xs),
+                Expanded(
+                  child: Text(
+                    'Un inventaire = comptage physique du stock. On saisit ce qu\'on '
+                    'a réellement en rayon, le système le compare au stock théorique '
+                    'et l\'écart génère un ajustement (validé par le superviseur).',
+                    style: TextStyle(color: AppColors.gray700, fontSize: AppSizes.fontXs),
+                  ),
+                ),
+              ],
+            ),
+          ),
           // ── Filtres statut ────────────────────────────────────────────────
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,

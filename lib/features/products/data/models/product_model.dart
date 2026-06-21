@@ -14,6 +14,7 @@ class ProductModel {
     this.categorieNom,
     this.uniteSymbole,
     this.seuilAlerte,
+    this.codeBarre,
     this.description,
     this.imageUrl,
     this.categorieId,
@@ -29,6 +30,7 @@ class ProductModel {
   final int id;
   final String reference;
   final String nom;
+  final String? codeBarre;
   final String? categorieNom;
   final String? uniteSymbole;
   final num prixAchat;
@@ -54,12 +56,15 @@ class ProductModel {
       id: j['id'] as int,
       reference: j['reference'] as String? ?? '',
       nom: j['nom'] as String? ?? '',
+      codeBarre: j['code_barre'] as String?,
       categorieNom: j['categorie_nom'] as String?,
       uniteSymbole: j['unite_symbole'] as String?,
-      prixAchat: j['prix_achat'] as num? ?? 0,
-      prixVente: j['prix_vente'] as num? ?? 0,
-      marge: (j['marge'] as num?) ?? 0,
-      seuilAlerte: j['seuil_alerte'] as num?,
+      // DRF renvoie les DecimalField (prix, seuils, tva) en string ("5000.00") →
+      // parsing robuste, un cast `as num` planterait toute la liste.
+      prixAchat: _num(j['prix_achat']),
+      prixVente: _num(j['prix_vente']),
+      marge: _num(j['marge']),
+      seuilAlerte: _numN(j['seuil_alerte']),
       estPerimable: j['est_perimable'] as bool? ?? false,
       isActive: j['is_active'] as bool? ?? true,
       createdAt: DateTime.parse(j['created_at'] as String),
@@ -70,18 +75,30 @@ class ProductModel {
       uniteNom: j['unite_nom'] as String?,
       fournisseurId: j['fournisseur_principal'] as int?,
       fournisseurNom: j['fournisseur_nom'] as String?,
-      tvaTaux: j['tva_taux'] as num?,
-      seuilMax: j['seuil_max'] as num?,
+      tvaTaux: _numN(j['tva_taux']),
+      seuilMax: _numN(j['seuil_max']),
       updatedAt: j['updated_at'] != null
           ? DateTime.parse(j['updated_at'] as String)
           : null,
     );
   }
 
+  static num _num(dynamic v) {
+    if (v is num) return v;
+    return num.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
+  static num? _numN(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v;
+    return num.tryParse(v.toString());
+  }
+
   ProductEntity toEntity() => ProductEntity(
         id: id,
         reference: reference,
         nom: nom,
+        codeBarre: codeBarre,
         categorieNom: categorieNom,
         uniteSymbole: uniteSymbole,
         prixAchat: prixAchat,

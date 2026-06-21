@@ -1,8 +1,10 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
+import 'package:djoulagest_mobile/core/errors/app_exception.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
 import 'package:djoulagest_mobile/core/constants/app_strings.dart';
 import 'package:djoulagest_mobile/core/router/app_routes.dart';
@@ -47,6 +49,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   String _errorMessage(Object? error) {
+    // L'erreur remontée est un DioException dont `.error` porte l'AppException
+    // parsée par l'ErrorInterceptor.
+    final parsed = error is DioException ? error.error : error;
+
+    if (parsed is UnauthorizedException) {
+      // 401 sur /auth/login/ = identifiants incorrects.
+      return 'Email ou mot de passe incorrect.';
+    }
+    if (parsed is ForbiddenException) {
+      // 403 = compte désactivé ou bloqué après trop de tentatives.
+      return parsed.message;
+    }
+    if (parsed is ValidationException) {
+      return parsed.message;
+    }
+    if (parsed is NetworkException || parsed is TimeoutException) {
+      return AppStrings.errorNetwork;
+    }
+
     final msg = error?.toString() ?? '';
     if (msg.contains('401') || msg.contains('credentials') || msg.contains('password')) {
       return 'Email ou mot de passe incorrect.';

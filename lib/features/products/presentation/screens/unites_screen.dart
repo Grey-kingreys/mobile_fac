@@ -1,10 +1,24 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
 import 'package:djoulagest_mobile/core/di/providers.dart';
+import 'package:djoulagest_mobile/core/errors/app_exception.dart';
 import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
+
+String _apiError(dynamic e) {
+  if (e is DioException && e.error is AppException) {
+    final ex = e.error as AppException;
+    if (ex is ValidationException && ex.fieldErrors.isNotEmpty) {
+      final entry = ex.fieldErrors.entries.first;
+      return '${entry.key} : ${entry.value.first}';
+    }
+    return ex.message;
+  }
+  return e.toString();
+}
 
 // ─── Entity inline ────────────────────────────────────────────────────────────
 
@@ -201,6 +215,27 @@ class _UnitesScreenState extends ConsumerState<UnitesScreen> {
     );
   }
 
+  void _showDetailSheet(_UniteItem u) {
+    final canEdit = _canEdit.contains(ref.read(effectiveRoleProvider));
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(AppSizes.radiusLg)),
+      ),
+      builder: (_) => _UniteDetailSheet(
+        unite: u,
+        canEdit: canEdit,
+        onEdit: () {
+          Navigator.of(context).pop();
+          _showEditSheet(u);
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final role = ref.watch(effectiveRoleProvider);
@@ -265,7 +300,7 @@ class _UnitesScreenState extends ConsumerState<UnitesScreen> {
                 }
                 final u = s.items[i];
                 return GestureDetector(
-                  onTap: canEdit ? () => _showEditSheet(u) : null,
+                  onTap: () => _showDetailSheet(u),
                   child: Container(
                     padding: const EdgeInsets.all(AppSizes.md),
                     decoration: BoxDecoration(
@@ -306,9 +341,8 @@ class _UnitesScreenState extends ConsumerState<UnitesScreen> {
                             ),
                           ),
                         ),
-                        if (canEdit)
-                          const Icon(Icons.chevron_right_rounded,
-                              color: AppColors.gray300, size: AppSizes.iconMd),
+                        const Icon(Icons.chevron_right_rounded,
+                            color: AppColors.gray300, size: AppSizes.iconMd),
                       ],
                     ),
                   ),
@@ -391,7 +425,7 @@ class _UniteFormSheetState extends ConsumerState<_UniteFormSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur : $e'),
+              content: Text(_apiError(e)),
               backgroundColor: AppColors.danger),
         );
       }
@@ -441,7 +475,7 @@ class _UniteFormSheetState extends ConsumerState<_UniteFormSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur : $e'),
+              content: Text(_apiError(e)),
               backgroundColor: AppColors.danger),
         );
       }
@@ -554,6 +588,120 @@ class _UniteFormSheetState extends ConsumerState<_UniteFormSheet> {
               const SizedBox(height: AppSizes.md),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Détail unité ─────────────────────────────────────────────────────────────
+
+class _UniteDetailSheet extends StatelessWidget {
+  const _UniteDetailSheet({
+    required this.unite,
+    required this.canEdit,
+    required this.onEdit,
+  });
+
+  final _UniteItem unite;
+  final bool canEdit;
+  final VoidCallback onEdit;
+
+  Widget _infoRow(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSizes.xs),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 100,
+              child: Text(label,
+                  style: const TextStyle(
+                      fontSize: AppSizes.fontSm,
+                      color: AppColors.gray500,
+                      fontWeight: FontWeight.w500)),
+            ),
+            Expanded(
+              child: Text(value,
+                  style: const TextStyle(
+                      fontSize: AppSizes.fontSm,
+                      color: AppColors.gray900,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.paddingPage),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Text('Détail unité',
+                    style: TextStyle(
+                        fontSize: AppSizes.fontLg,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.gray900)),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSizes.md),
+            Center(
+              child: Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                ),
+                child: Center(
+                  child: Text(
+                    unite.symbole.isNotEmpty ? unite.symbole : '?',
+                    style: const TextStyle(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 22),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSizes.md),
+            const Divider(),
+            const SizedBox(height: AppSizes.xs),
+            _infoRow('Nom', unite.name),
+            _infoRow('Symbole', unite.symbole),
+            if (canEdit) ...[
+              const SizedBox(height: AppSizes.lg),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_rounded, size: 18),
+                  label: const Text('Modifier'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding:
+                        const EdgeInsets.symmetric(vertical: AppSizes.md),
+                    shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(AppSizes.radiusMd)),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSizes.md),
+          ],
         ),
       ),
     );

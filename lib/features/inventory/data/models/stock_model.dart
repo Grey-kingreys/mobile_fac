@@ -12,12 +12,19 @@ abstract class StockModel {
       produitReference: json['produit_reference'] as String? ?? '',
       produitNom: json['produit_nom'] as String? ?? '',
       uniteSymbole: json['unite_symbole'] as String?,
-      quantite: (json['quantite'] as num?) ?? 0,
-      seuilAlerte: json['seuil_alerte'] as num?,
+      // DRF renvoie les DecimalField en string → parsing robuste (un cast
+      // `as num` planterait toute la liste : « impossible de charger »).
+      quantite: _num(json['quantite']),
+      seuilAlerte: _numN(json['seuil_alerte']),
       enAlerte: json['en_alerte'] as bool? ?? false,
       updatedAt: json['updated_at'] != null
           ? DateTime.tryParse(json['updated_at'] as String)
           : null,
     );
   }
+
+  static num _num(dynamic v) =>
+      v is num ? v : (num.tryParse(v?.toString() ?? '') ?? 0);
+  static num? _numN(dynamic v) =>
+      v == null ? null : (v is num ? v : num.tryParse(v.toString()));
 }

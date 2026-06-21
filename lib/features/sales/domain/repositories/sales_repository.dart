@@ -29,6 +29,7 @@ abstract class SalesRepository {
     num montantPaye,
     String? modePaiementInitial,
     String? referencePaiement,
+    int? compteMobileMoney,
     String? notes,
   });
 }

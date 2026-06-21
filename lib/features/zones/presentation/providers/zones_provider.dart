@@ -1,5 +1,7 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:djoulagest_mobile/core/di/providers.dart';
+import 'package:djoulagest_mobile/core/errors/app_exception.dart';
 import 'package:djoulagest_mobile/features/zones/data/datasources/zones_remote_datasource.dart';
 import 'package:djoulagest_mobile/features/zones/domain/entities/zone_entity.dart';
 
@@ -165,6 +167,15 @@ class ZonesNotifier extends AsyncNotifier<ZonesState> {
   }
 
   String _msg(Object e) {
+    // Surfacer le vrai message du backend (ex. « Ce code est déjà utilisé… »)
+    // au lieu du DioException brut.
+    if (e is DioException) {
+      final inner = e.error;
+      if (inner is ValidationException && inner.fieldErrors.isNotEmpty) {
+        return inner.fieldErrors.values.first.first;
+      }
+      if (inner is AppException) return inner.message;
+    }
     final s = e.toString();
     return s.startsWith('Exception: ') ? s.substring(11) : s;
   }

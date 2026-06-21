@@ -17,12 +17,16 @@ class LigneMissionModel extends LigneMissionEntity {
       produit: j['produit'] as int,
       produitNom: j['produit_nom'] as String? ?? '',
       produitReference: j['produit_reference'] as String? ?? '',
-      quantite: j['quantite'] as num? ?? 0,
-      quantiteRecue: j['quantite_recue'] as num?,
+      // DecimalField DRF → string → parsing robuste.
+      quantite: _mNum(j['quantite']) ?? 0,
+      quantiteRecue: _mNum(j['quantite_recue']),
       observations: j['observations'] as String?,
     );
   }
 }
+
+num? _mNum(dynamic v) =>
+    v == null ? null : (v is num ? v : num.tryParse(v.toString()));
 
 class MissionModel extends MissionEntity {
   const MissionModel({

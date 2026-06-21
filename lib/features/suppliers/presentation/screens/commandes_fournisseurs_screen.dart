@@ -1100,31 +1100,84 @@ class _LigneRowState extends ConsumerState<_LigneRow> {
   }
 
   void _pickProduit() async {
-    final produits = ref.read(productsSearchProvider(''));
-    final all = produits.valueOrNull ?? [];
-
-    if (all.isEmpty) return;
+    // ⚠️ `productsSearchProvider` est un FutureProvider.autoDispose qui n'est
+    // watché nulle part dans cet écran. Un simple `ref.read(...).valueOrNull`
+    // renvoyait `null` (état AsyncLoading au 1ᵉʳ tap) → liste vide → le dialogue
+    // ne s'ouvrait jamais. On AWAIT le `.future` pour réellement charger la liste.
+    final List<Map<String, dynamic>> all;
+    try {
+      all = await ref.read(productsSearchProvider('').future);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Impossible de charger les produits.')));
+      }
+      return;
+    }
+    if (!mounted) return;
+    if (all.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Aucun produit disponible. Créez d\'abord un produit.')));
+      return;
+    }
 
     final picked = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Choisir un produit'),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 300,
-          child: ListView.builder(
-            itemCount: all.length,
-            itemBuilder: (_, i) {
-              final p = all[i];
-              return ListTile(
-                title: Text(p['nom'] as String? ?? ''),
-                subtitle: Text(p['reference'] as String? ?? ''),
-                onTap: () => Navigator.of(ctx).pop(p),
-              );
-            },
-          ),
-        ),
-      ),
+      builder: (ctx) {
+        var query = '';
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            final q = query.trim().toLowerCase();
+            final filtered = q.isEmpty
+                ? all
+                : all.where((p) {
+                    final nom = (p['nom'] as String? ?? '').toLowerCase();
+                    final reference =
+                        (p['reference'] as String? ?? '').toLowerCase();
+                    return nom.contains(q) || reference.contains(q);
+                  }).toList();
+            return AlertDialog(
+              title: const Text('Choisir un produit'),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 360,
+                child: Column(
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        hintText: 'Rechercher un produit…',
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      onChanged: (v) => setLocal(() => query = v),
+                    ),
+                    const SizedBox(height: AppSizes.sm),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(
+                              child: Text('Aucun produit trouvé',
+                                  style: TextStyle(color: AppColors.gray500)))
+                          : ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (_, i) {
+                                final p = filtered[i];
+                                return ListTile(
+                                  title: Text(p['nom'] as String? ?? ''),
+                                  subtitle: Text(p['reference'] as String? ?? ''),
+                                  onTap: () => Navigator.of(ctx).pop(p),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
 
     if (picked != null && mounted) {

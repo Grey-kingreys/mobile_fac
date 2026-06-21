@@ -6,6 +6,7 @@ import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
 import 'package:djoulagest_mobile/core/utils/formatters.dart';
 import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/features/finance/domain/entities/cash_session_entity.dart';
+import 'package:djoulagest_mobile/features/finance/presentation/providers/caisses_provider.dart';
 import 'package:djoulagest_mobile/features/finance/presentation/providers/finance_provider.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
 import 'package:djoulagest_mobile/shared/widgets/app_button.dart';
@@ -253,12 +254,15 @@ class _ActiveSessionCard extends ConsumerWidget {
               label: 'Solde calculé',
               value: AppFormatters.gnf(session!.soldeCalcule),
               large: true,
+              expand: false,
             ),
           ],
 
           const SizedBox(height: AppSizes.md),
 
-          // CTA caissier
+          // CTA — caissier : fermer/ouvrir sa propre session (caisse auto-résolue).
+          // Admin / superviseur : ouvrir une session en choisissant la caisse
+          // (parité web — le bouton reste visible même sans session active).
           if (isCaissier)
             if (isOpen)
               AppButton(
@@ -273,14 +277,21 @@ class _ActiveSessionCard extends ConsumerWidget {
                 icon: Icons.lock_open_rounded,
                 onPressed: () => _showOpenDialog(context, ref),
                 gradient: true,
-              ),
+              )
+          else
+            AppButton(
+              label: 'Ouvrir une session',
+              icon: Icons.lock_open_rounded,
+              onPressed: () => _showOpenDialog(context, ref),
+              gradient: true,
+            ),
         ],
       ),
     );
   }
 
   void _showOpenDialog(BuildContext context, WidgetRef ref) {
-    _OpenSessionDialog.show(context, ref);
+    _OpenSessionDialog.show(context, ref, isCaissier: isCaissier);
   }
 
   void _showCloseSheet(
@@ -294,37 +305,48 @@ class _SessionKpi extends StatelessWidget {
     required this.label,
     required this.value,
     this.large = false,
+    this.expand = true,
   });
 
   final String label;
   final String value;
   final bool large;
 
+  /// `true` (défaut) → `Expanded` pour répartir dans une `Row`.
+  /// `false` → KPI autonome (ne JAMAIS mettre un `Expanded` directement dans la
+  /// `Column` de la carte : la carte est dans un `ListView` (hauteur non bornée)
+  /// → « RenderBox was not laid out » → frame figé / ANR.
+  final bool expand;
+
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.65),
-              fontSize: AppSizes.fontXs,
-            ),
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.65),
+            fontSize: AppSizes.fontXs,
           ),
-          Text(
-            value,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: large ? AppSizes.fontMd : AppSizes.fontSm,
-              fontWeight: FontWeight.w700,
-            ),
-            overflow: TextOverflow.ellipsis,
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: large ? AppSizes.fontMd : AppSizes.fontSm,
+            fontWeight: FontWeight.w700,
           ),
-        ],
-      ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
     );
+
+    return expand
+        ? Expanded(child: content)
+        : SizedBox(width: double.infinity, child: content);
   }
 }
 
@@ -469,6 +491,7 @@ class _MiniKpi extends StatelessWidget {
               style: const TextStyle(
                   fontSize: AppSizes.fontXs, color: AppColors.gray400)),
           Text(value,
+              maxLines: 1,
               style: TextStyle(
                   fontSize: AppSizes.fontXs,
                   fontWeight: FontWeight.w600,
@@ -483,12 +506,17 @@ class _MiniKpi extends StatelessWidget {
 // ─── Dialog ouverture session ─────────────────────────────────────────────────
 
 class _OpenSessionDialog extends ConsumerStatefulWidget {
-  const _OpenSessionDialog();
+  const _OpenSessionDialog({required this.isCaissier});
 
-  static void show(BuildContext context, WidgetRef ref) {
+  /// Caissier : caisse auto-résolue depuis son dépôt (pas de sélecteur).
+  /// Non-caissier (admin/superviseur) : sélecteur de caisse obligatoire.
+  final bool isCaissier;
+
+  static void show(BuildContext context, WidgetRef ref,
+      {required bool isCaissier}) {
     showDialog(
       context: context,
-      builder: (_) => const _OpenSessionDialog(),
+      builder: (_) => _OpenSessionDialog(isCaissier: isCaissier),
     );
   }
 
@@ -499,6 +527,9 @@ class _OpenSessionDialog extends ConsumerStatefulWidget {
 class _OpenSessionDialogState extends ConsumerState<_OpenSessionDialog> {
   final _ctrl = TextEditingController();
   bool _loading = false;
+  int? _selectedCaisseId;
+
+  bool get _needsCaisse => !widget.isCaissier;
 
   @override
   void dispose() {
@@ -513,11 +544,16 @@ class _OpenSessionDialogState extends ConsumerState<_OpenSessionDialog> {
       AppSnackbar.error(context, 'Montant invalide');
       return;
     }
+    if (_needsCaisse && _selectedCaisseId == null) {
+      AppSnackbar.error(context, 'Sélectionnez une caisse.');
+      return;
+    }
     FocusScope.of(context).unfocus();
     setState(() => _loading = true);
-    final err = await ref
-        .read(financeProvider.notifier)
-        .openSession(soldeOuverture: amount);
+    final err = await ref.read(financeProvider.notifier).openSession(
+          soldeOuverture: amount,
+          caisseId: _needsCaisse ? _selectedCaisseId : null,
+        );
     if (!mounted) return;
     setState(() => _loading = false);
     if (err == null) {
@@ -537,11 +573,24 @@ class _OpenSessionDialogState extends ConsumerState<_OpenSessionDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Entrez le solde de caisse que vous avez compté physiquement avant d\'ouvrir la session.',
+            _needsCaisse
+                ? 'Vérifiez la caisse à ouvrir et indiquez le solde compté physiquement.'
+                : 'Entrez le solde de caisse que vous avez compté physiquement avant d\'ouvrir la session.',
             style: const TextStyle(
                 fontSize: AppSizes.fontSm, color: AppColors.gray500),
           ),
           const SizedBox(height: AppSizes.md),
+
+          // Sélecteur de caisse (admin/superviseur uniquement)
+          if (_needsCaisse) ...[
+            _CaissePicker(
+              enabled: !_loading,
+              selectedId: _selectedCaisseId,
+              onChanged: (id) => setState(() => _selectedCaisseId = id),
+            ),
+            const SizedBox(height: AppSizes.md),
+          ],
+
           AppTextField(
             controller: _ctrl,
             label: 'Solde d\'ouverture (GNF)',
@@ -569,6 +618,151 @@ class _OpenSessionDialogState extends ConsumerState<_OpenSessionDialog> {
           gradient: true,
         ),
       ],
+    );
+  }
+}
+
+// ─── Sélecteur de caisse physique (ouverture par admin/superviseur) ────────────
+
+class _CaissePicker extends ConsumerWidget {
+  const _CaissePicker({
+    required this.enabled,
+    required this.selectedId,
+    required this.onChanged,
+  });
+
+  final bool enabled;
+  final int? selectedId;
+  final ValueChanged<int?> onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final caissesAsync = ref.watch(caissesProvider);
+
+    return caissesAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSizes.sm),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: AppSizes.sm),
+            Text('Chargement des caisses…',
+                style: TextStyle(
+                    fontSize: AppSizes.fontSm, color: AppColors.gray500)),
+          ],
+        ),
+      ),
+      error: (_, __) => const Text(
+        'Impossible de charger les caisses.',
+        style: TextStyle(fontSize: AppSizes.fontSm, color: AppColors.danger),
+      ),
+      data: (state) {
+        // Une session ne peut s'ouvrir que sur une caisse physique OUVERTE
+        // (contrainte backend : au plus une caisse ouverte par dépôt). On ne
+        // propose donc que les caisses actives ET ouvertes.
+        final caisses = state.physiques
+            .where((c) => c.isActive && c.isOuverte)
+            .toList(growable: false);
+
+        if (caisses.isEmpty) {
+          return const Text(
+            'Aucune caisse ouverte. Ouvrez-en une dans « Gestion des caisses » '
+            'avant de démarrer une session.',
+            style:
+                TextStyle(fontSize: AppSizes.fontSm, color: AppColors.danger),
+          );
+        }
+
+        // Cas mono-dépôt : une seule caisse ouverte → on la prend d'office.
+        if (caisses.length == 1) {
+          final only = caisses.first;
+          if (selectedId != only.id) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              onChanged(only.id);
+            });
+          }
+          return _SelectedCaisseTile(nom: only.nom, depotNom: only.depotNom);
+        }
+
+        // Plusieurs caisses ouvertes (multi-dépôts) → choix explicite.
+        return DropdownButtonFormField<int>(
+          initialValue: selectedId,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Caisse',
+            prefixIcon: Icon(Icons.point_of_sale_outlined),
+            border: OutlineInputBorder(),
+          ),
+          hint: const Text('Sélectionnez une caisse'),
+          items: caisses
+              .map((c) => DropdownMenuItem<int>(
+                    value: c.id,
+                    child: Text(
+                      '${c.nom} · ${c.depotNom}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ))
+              .toList(),
+          onChanged: enabled ? onChanged : null,
+        );
+      },
+    );
+  }
+}
+
+/// Affichage en lecture seule de la caisse retenue d'office (cas unique caisse).
+class _SelectedCaisseTile extends StatelessWidget {
+  const _SelectedCaisseTile({required this.nom, required this.depotNom});
+
+  final String nom;
+  final String depotNom;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSizes.md, vertical: AppSizes.sm),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.point_of_sale_outlined,
+              size: AppSizes.iconSm, color: AppColors.primary),
+          const SizedBox(width: AppSizes.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  nom,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: AppSizes.fontSm,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.gray800,
+                  ),
+                ),
+                Text(
+                  depotNom,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: AppSizes.fontXs, color: AppColors.gray500),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

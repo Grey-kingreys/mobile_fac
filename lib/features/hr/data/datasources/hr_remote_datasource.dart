@@ -77,6 +77,32 @@ class HrRemoteDatasource {
     return PresenceModel.fromJson(resp.data ?? {});
   }
 
+  /// Pointage self-service géolocalisé : POST /presences/pointer/.
+  Future<PresenceEntity> pointerPresence(Map<String, dynamic> body) async {
+    final resp = await _api.post<Map<String, dynamic>>(
+      ApiEndpoints.presencePointer,
+      data: body,
+    );
+    return PresenceModel.fromJson(resp.data ?? {});
+  }
+
+  /// État du pointage du jour : GET /presences/aujourdhui/.
+  Future<PresenceTodayStatus> getPresenceAujourdhui() async {
+    final resp = await _api.get<Map<String, dynamic>>(
+      ApiEndpoints.presenceAujourdhui,
+    );
+    return PresenceTodayStatusModel.fromJson(resp.data ?? {});
+  }
+
+  /// Récap présences/absences du jour (admin/superviseur) : GET /presences/recap/.
+  Future<PresenceRecap> getPresenceRecap({String? date}) async {
+    final resp = await _api.get<Map<String, dynamic>>(
+      ApiEndpoints.presenceRecap,
+      queryParameters: date != null ? {'date': date} : null,
+    );
+    return PresenceRecapModel.fromJson(resp.data ?? {});
+  }
+
   // ─── Congés ──────────────────────────────────────────────────────────────────
 
   Future<({int count, List<CongeEntity> conges})> getConges({
@@ -119,9 +145,10 @@ class HrRemoteDatasource {
     return CongeModel.fromJson(resp.data ?? {});
   }
 
-  Future<CongeEntity> refuserConge(int id) async {
+  Future<CongeEntity> refuserConge(int id, {String? motif}) async {
     final resp = await _api.post<Map<String, dynamic>>(
       ApiEndpoints.congeRefuser(id),
+      data: (motif != null && motif.isNotEmpty) ? {'motif_traitement': motif} : null,
     );
     return CongeModel.fromJson(resp.data ?? {});
   }

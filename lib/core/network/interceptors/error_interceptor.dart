@@ -38,15 +38,20 @@ class ErrorInterceptor extends Interceptor {
 
     // Extraire le message d'erreur du backend
     String message = _extractMessage(data, statusCode);
+    final hasBackendMessage = !message.startsWith('Erreur ');
 
     switch (statusCode) {
       case 400:
         final fieldErrors = _extractFieldErrors(data);
         return ValidationException(message, fieldErrors: fieldErrors);
       case 401:
-        return const UnauthorizedException();
+        return hasBackendMessage
+            ? UnauthorizedException(message)
+            : const UnauthorizedException();
       case 403:
-        return const ForbiddenException();
+        return hasBackendMessage
+            ? ForbiddenException(message)
+            : const ForbiddenException();
       case 404:
         return const NotFoundException();
       case >= 500:

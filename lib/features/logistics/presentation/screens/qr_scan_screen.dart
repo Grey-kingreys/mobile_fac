@@ -14,8 +14,21 @@ class QrScanScreen extends ConsumerStatefulWidget {
   ConsumerState<QrScanScreen> createState() => _QrScanScreenState();
 }
 
+// Le QR d'une mission encode un UUID (back_fac : `qrcode.make(str(mission.qr_code))`).
+// On valide le format avant tout appel réseau pour ignorer les lectures partielles
+// ou un code-barres sans rapport (qui provoquaient un faux « QR invalide »).
+final _uuidRegExp = RegExp(
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+);
+
 class _QrScanScreenState extends ConsumerState<QrScanScreen> {
-  final MobileScannerController _controller = MobileScannerController();
+  // detectionSpeed.noDuplicates : on ne re-traite pas en boucle le même code ;
+  // un court timeout laisse l'autofocus stabiliser l'image avant lecture.
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    detectionTimeoutMs: 250,
+    formats: const [BarcodeFormat.qrCode],
+  );
   bool _isProcessing = false;
   String? _error;
 
@@ -28,8 +41,12 @@ class _QrScanScreenState extends ConsumerState<QrScanScreen> {
   Future<void> _onDetect(BarcodeCapture capture) async {
     if (_isProcessing) return;
     final barcode = capture.barcodes.firstOrNull;
-    final rawValue = barcode?.rawValue;
+    final rawValue = barcode?.rawValue?.trim();
     if (rawValue == null || rawValue.isEmpty) return;
+
+    // Lecture incomplète / mauvais code : on ignore silencieusement et on
+    // continue de scanner (pas d'appel API, pas de message d'erreur trompeur).
+    if (!_uuidRegExp.hasMatch(rawValue)) return;
 
     setState(() {
       _isProcessing = true;
@@ -44,7 +61,8 @@ class _QrScanScreenState extends ConsumerState<QrScanScreen> {
       }
     } catch (_) {
       setState(() {
-        _error = 'QR invalide ou mission introuvable.';
+        _error = 'QR reconnu, mais mission introuvable. Vérifiez que la '
+            'mission est « Planifiée » et qu\'elle vous est bien assignée.';
         _isProcessing = false;
       });
       await _controller.start();

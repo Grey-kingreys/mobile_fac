@@ -41,6 +41,7 @@ class SalesRepositoryImpl implements SalesRepository {
     num montantPaye = 0,
     String? modePaiementInitial,
     String? referencePaiement,
+    int? compteMobileMoney,
     String? notes,
   }) =>
       _datasource.createSale(
@@ -52,6 +53,7 @@ class SalesRepositoryImpl implements SalesRepository {
         montantPaye: montantPaye,
         modePaiementInitial: modePaiementInitial,
         referencePaiement: referencePaiement,
+        compteMobileMoney: compteMobileMoney,
         notes: notes,
       );
 }

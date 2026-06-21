@@ -383,29 +383,40 @@ class _AjustementTile extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 4),
-          Row(
-            children: [
-              Text(
-                'Par ${ajustement.demandeParNom}  •  ${AppFormatters.dateShort(ajustement.createdAt)}',
-                style: const TextStyle(
-                    fontSize: AppSizes.fontXs, color: AppColors.gray400),
-              ),
-              const Spacer(),
-              if (canApprove && ajustement.isEnAttente) ...[
-                _ActionButton(
-                  label: 'Approuver',
-                  color: AppColors.secondary,
-                  onPressed: onApprouver,
+          // Métadonnées sur leur propre ligne — jamais en compétition avec les boutons.
+          Text(
+            'Par ${ajustement.demandeParNom}  •  ${AppFormatters.dateShort(ajustement.createdAt)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontSize: AppSizes.fontXs, color: AppColors.gray400),
+          ),
+          // Actions sur une ligne dédiée, en pleine largeur et tactiles (≥ 44px).
+          if (canApprove && ajustement.isEnAttente) ...[
+            const SizedBox(height: AppSizes.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: _ActionButton(
+                    label: 'Approuver',
+                    icon: Icons.check_rounded,
+                    color: AppColors.secondary,
+                    filled: true,
+                    onPressed: onApprouver,
+                  ),
                 ),
-                const SizedBox(width: AppSizes.xs),
-                _ActionButton(
-                  label: 'Refuser',
-                  color: AppColors.danger,
-                  onPressed: onRefuser,
+                const SizedBox(width: AppSizes.sm),
+                Expanded(
+                  child: _ActionButton(
+                    label: 'Refuser',
+                    icon: Icons.close_rounded,
+                    color: AppColors.danger,
+                    onPressed: onRefuser,
+                  ),
                 ),
               ],
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );
@@ -417,30 +428,50 @@ class _ActionButton extends StatelessWidget {
     required this.label,
     required this.color,
     required this.onPressed,
+    this.icon,
+    this.filled = false,
   });
 
   final String label;
   final Color color;
   final VoidCallback onPressed;
+  final IconData? icon;
+  final bool filled;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onPressed,
-      borderRadius: BorderRadius.circular(AppSizes.radiusXs),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppSizes.radiusXs),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: AppSizes.fontXs,
-            fontWeight: FontWeight.w600,
-            color: color,
+    final fg = filled ? Colors.white : color;
+    return Material(
+      color: filled ? color : color.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+        child: Container(
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+            border: filled
+                ? null
+                : Border.all(color: color.withValues(alpha: 0.4)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: AppSizes.iconSm, color: fg),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: AppSizes.fontSm,
+                  fontWeight: FontWeight.w600,
+                  color: fg,
+                ),
+              ),
+            ],
           ),
         ),
       ),

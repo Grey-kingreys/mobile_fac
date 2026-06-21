@@ -1415,6 +1415,7 @@ class DocumentsVehiculeScreen extends ConsumerStatefulWidget {
 
 class _DocumentsVehiculeScreenState
     extends ConsumerState<DocumentsVehiculeScreen> {
+  static const _canCreate = ['admin', 'superviseur', 'maintenancier'];
   late final ScrollController _scrollCtrl;
 
   @override
@@ -1438,10 +1439,30 @@ class _DocumentsVehiculeScreenState
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(_docProvider);
+    final canCreate = _canCreate.contains(ref.watch(effectiveRoleProvider));
 
     return AppScaffold(
       title: 'Documents véhicule',
       showBottomNav: false,
+      floatingActionButton: canCreate
+          ? FloatingActionButton.extended(
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.white,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(AppSizes.radiusLg)),
+                ),
+                builder: (_) => _DocCreateSheet(
+                  onCreated: () => ref.read(_docProvider.notifier).refresh(),
+                ),
+              ),
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Ajouter un document'),
+            )
+          : null,
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, __) => _ErrorRetry(
@@ -1757,4 +1778,169 @@ class _EmptyState extends StatelessWidget {
           ],
         ),
       );
+}
+
+// ─── Formulaire création document véhicule ──────────────────────────────────
+
+class _DocCreateSheet extends ConsumerStatefulWidget {
+  const _DocCreateSheet({required this.onCreated});
+  final VoidCallback onCreated;
+
+  @override
+  ConsumerState<_DocCreateSheet> createState() => _DocCreateSheetState();
+}
+
+class _DocCreateSheetState extends ConsumerState<_DocCreateSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _dateCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+  int? _vehiculeId;
+  String _type = 'assurance';
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _dateCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: now.add(const Duration(days: 365)),
+      firstDate: now.subtract(const Duration(days: 365)),
+      lastDate: DateTime(now.year + 20),
+    );
+    if (picked != null) {
+      _dateCtrl.text =
+          '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      setState(() {});
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSaving = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.post<Map<String, dynamic>>(
+        ApiEndpoints.documentsVehicule,
+        data: {
+          'vehicule': _vehiculeId,
+          'type_document': _type,
+          if (_dateCtrl.text.isNotEmpty) 'date_expiration': _dateCtrl.text,
+          if (_notesCtrl.text.isNotEmpty) 'notes': _notesCtrl.text.trim(),
+        },
+      );
+      if (mounted) {
+        Navigator.of(context).pop();
+        widget.onCreated();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Document ajouté'),
+          backgroundColor: AppColors.secondary,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Erreur : $e'), backgroundColor: AppColors.danger));
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vehiculesAsync = ref.watch(vehiculesSimpleProvider);
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.paddingPage),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SheetHeader(
+                  title: 'Ajouter un document',
+                  onClose: () => Navigator.of(context).pop()),
+              const SizedBox(height: AppSizes.md),
+              vehiculesAsync.when(
+                loading: () => const SizedBox(
+                    height: 56, child: Center(child: LinearProgressIndicator())),
+                error: (_, __) => const Text('Impossible de charger les véhicules',
+                    style: TextStyle(color: AppColors.danger)),
+                data: (vehicules) => DropdownButtonFormField<int>(
+                  initialValue: _vehiculeId,
+                  decoration: const InputDecoration(
+                      labelText: 'Véhicule *', border: OutlineInputBorder()),
+                  items: vehicules
+                      .map((v) => DropdownMenuItem(
+                          value: v.id, child: Text(v.immatriculation)))
+                      .toList(),
+                  onChanged: (v) => setState(() => _vehiculeId = v),
+                  validator: (v) => v == null ? 'Requis' : null,
+                ),
+              ),
+              const SizedBox(height: AppSizes.sm),
+              DropdownButtonFormField<String>(
+                initialValue: _type,
+                decoration: const InputDecoration(
+                    labelText: 'Type de document', border: OutlineInputBorder()),
+                items: const [
+                  DropdownMenuItem(value: 'assurance', child: Text('Assurance')),
+                  DropdownMenuItem(value: 'visite_technique', child: Text('Visite technique')),
+                  DropdownMenuItem(value: 'carte_grise', child: Text('Carte grise')),
+                  DropdownMenuItem(value: 'autre', child: Text('Autre')),
+                ],
+                onChanged: (v) => setState(() => _type = v ?? 'assurance'),
+              ),
+              const SizedBox(height: AppSizes.sm),
+              TextFormField(
+                controller: _dateCtrl,
+                readOnly: true,
+                onTap: _pickDate,
+                decoration: const InputDecoration(
+                  labelText: 'Date d\'expiration (optionnel)',
+                  border: OutlineInputBorder(),
+                  suffixIcon: Icon(Icons.calendar_today_outlined),
+                ),
+              ),
+              const SizedBox(height: AppSizes.sm),
+              TextFormField(
+                controller: _notesCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                    labelText: 'Notes', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: AppSizes.lg),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: AppSizes.md),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppSizes.radiusMd)),
+                  ),
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 20, height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Ajouter le document'),
+                ),
+              ),
+              const SizedBox(height: AppSizes.md),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

@@ -53,16 +53,37 @@ class MobileMoneyScreen extends ConsumerWidget {
   const MobileMoneyScreen({super.key});
 
   static const _canTransact = ['caissier', 'admin', 'superviseur'];
+  static const _canManage = ['admin']; // FINANCE_WRITE backend
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final comptesAsync = ref.watch(_comptesProvider);
     final role = ref.watch(effectiveRoleProvider);
     final canTransact = _canTransact.contains(role);
+    final canManage = _canManage.contains(role);
 
     return AppScaffold(
       title: 'Mobile Money',
       showBottomNav: true,
+      floatingActionButton: canManage
+          ? FloatingActionButton.extended(
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.white,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(AppSizes.radiusLg)),
+                ),
+                builder: (_) => _AddCompteSheet(
+                  onSaved: () => ref.invalidate(_comptesProvider),
+                ),
+              ),
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Associer un compte'),
+            )
+          : null,
       body: comptesAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, __) => Center(
@@ -424,6 +445,173 @@ class _TxTile extends StatelessWidget {
 }
 
 // ─── Formulaire transaction ───────────────────────────────────────────────────
+
+class _AddCompteSheet extends ConsumerStatefulWidget {
+  const _AddCompteSheet({required this.onSaved});
+  final VoidCallback onSaved;
+
+  @override
+  ConsumerState<_AddCompteSheet> createState() => _AddCompteSheetState();
+}
+
+class _AddCompteSheetState extends ConsumerState<_AddCompteSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _numeroCtrl = TextEditingController();
+  final _titulaireCtrl = TextEditingController();
+  String _operateur = 'orange_money';
+  List<Map<String, dynamic>> _depots = [];
+  int? _depotId;
+  bool _loadingDepots = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDepots();
+  }
+
+  @override
+  void dispose() {
+    _numeroCtrl.dispose();
+    _titulaireCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadDepots() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final res = await api.get<Map<String, dynamic>>(
+        ApiEndpoints.depots,
+        queryParameters: {'page_size': 100, 'is_active': true},
+      );
+      if (!mounted) return;
+      setState(() {
+        _depots = List<Map<String, dynamic>>.from((res.data?['results'] ?? []) as List);
+        _loadingDepots = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingDepots = false);
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_depotId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sélectionnez un dépôt'), backgroundColor: AppColors.danger),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.post<Map<String, dynamic>>(
+        ApiEndpoints.comptesMobileMoney,
+        data: {
+          'operateur': _operateur,
+          'depot': _depotId,
+          'numero': _numeroCtrl.text.trim(),
+          'nom_titulaire': _titulaireCtrl.text.trim(),
+        },
+      );
+      if (mounted) {
+        Navigator.of(context).pop();
+        widget.onSaved();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Compte associé'), backgroundColor: AppColors.secondary),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur : $e'), backgroundColor: AppColors.danger),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.paddingPage),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Text('Associer un compte Mobile Money',
+                      style: TextStyle(fontSize: AppSizes.fontLg, fontWeight: FontWeight.w700, color: AppColors.gray900)),
+                  const Spacer(),
+                  IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.of(context).pop()),
+                ],
+              ),
+              const SizedBox(height: AppSizes.md),
+              DropdownButtonFormField<String>(
+                initialValue: _operateur,
+                decoration: const InputDecoration(labelText: 'Opérateur *', border: OutlineInputBorder()),
+                items: const [
+                  DropdownMenuItem(value: 'orange_money', child: Text('Orange Money')),
+                  DropdownMenuItem(value: 'mtn_money', child: Text('MTN Money')),
+                ],
+                onChanged: _saving ? null : (v) => setState(() => _operateur = v ?? 'orange_money'),
+              ),
+              const SizedBox(height: AppSizes.sm),
+              if (_loadingDepots)
+                const Padding(padding: EdgeInsets.all(AppSizes.sm), child: LinearProgressIndicator())
+              else
+                DropdownButtonFormField<int>(
+                  initialValue: _depotId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Dépôt *', border: OutlineInputBorder()),
+                  items: _depots
+                      .map((d) => DropdownMenuItem(value: d['id'] as int, child: Text(d['name'] as String? ?? '—')))
+                      .toList(),
+                  onChanged: _saving ? null : (v) => setState(() => _depotId = v),
+                  validator: (v) => v == null ? 'Dépôt requis' : null,
+                ),
+              const SizedBox(height: AppSizes.sm),
+              TextFormField(
+                controller: _numeroCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'Numéro *', hintText: 'Ex : 620 00 00 00', border: OutlineInputBorder()),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Numéro requis' : null,
+              ),
+              const SizedBox(height: AppSizes.sm),
+              TextFormField(
+                controller: _titulaireCtrl,
+                decoration: const InputDecoration(labelText: 'Nom du titulaire', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: AppSizes.lg),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: AppSizes.md),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSizes.radiusMd)),
+                  ),
+                  child: _saving
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Associer le compte'),
+                ),
+              ),
+              const SizedBox(height: AppSizes.md),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _AddTransactionSheet extends ConsumerStatefulWidget {
   const _AddTransactionSheet(

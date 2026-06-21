@@ -14,6 +14,7 @@ class ProductEntity extends Equatable {
     this.categorieNom,
     this.uniteSymbole,
     this.seuilAlerte,
+    this.codeBarre,
     this.description,
     this.imageUrl,
     this.categorieId,
@@ -29,6 +30,7 @@ class ProductEntity extends Equatable {
   final int id;
   final String reference;
   final String nom;
+  final String? codeBarre;
   final String? categorieNom;
   final String? uniteSymbole;
   final num prixAchat;

@@ -48,11 +48,22 @@ class FinanceRemoteDatasource {
   Future<int?> getCaisseIdForDepot(int depotId) async {
     final resp = await _api.get<Map<String, dynamic>>(
       ApiEndpoints.caisses,
-      queryParameters: {'depot': depotId, 'page_size': '1'},
+      queryParameters: {'depot': depotId, 'page_size': '100'},
     );
     final results = _results(resp.data);
     if (results.isEmpty) return null;
-    return results.first['id'] as int?;
+    // Ne retenir que la caisse EXPLOITABLE : active ET ouverte. Une caisse
+    // fermée définitivement (is_active=false / statut=fermee) reste en base
+    // (règle §1) mais le backend la refuse à l'ouverture → 400. On évite donc
+    // de tomber dessus par défaut (avant : `page_size=1` triait par nom).
+    for (final r in results) {
+      final isActive = r['is_active'] as bool? ?? true;
+      final statut = r['statut'] as String? ?? '';
+      if (isActive && statut == 'ouverte') {
+        return r['id'] as int?;
+      }
+    }
+    return null;
   }
 
   Future<CashSessionEntity> openSession({

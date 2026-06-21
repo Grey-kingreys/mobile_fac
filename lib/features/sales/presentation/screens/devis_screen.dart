@@ -1,13 +1,27 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
+import 'package:djoulagest_mobile/core/errors/app_exception.dart';
 import 'package:djoulagest_mobile/core/network/api_endpoints.dart';
 import 'package:djoulagest_mobile/core/di/providers.dart';
 import 'package:djoulagest_mobile/core/utils/formatters.dart';
 import 'package:djoulagest_mobile/features/auth/presentation/providers/auth_provider.dart';
 import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
+
+String _apiError(dynamic e) {
+  if (e is DioException && e.error is AppException) {
+    final ex = e.error as AppException;
+    if (ex is ValidationException && ex.fieldErrors.isNotEmpty) {
+      final entry = ex.fieldErrors.entries.first;
+      return '${entry.key} : ${entry.value.first}';
+    }
+    return ex.message;
+  }
+  return e.toString();
+}
 
 // ─── Entités inline ───────────────────────────────────────────────────────────
 
@@ -655,7 +669,7 @@ class _DevisDetailSheetState extends ConsumerState<_DevisDetailSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur : $e'),
+              content: Text(_apiError(e)),
               backgroundColor: AppColors.danger),
         );
         setState(() => _isConverting = false);
@@ -1029,7 +1043,7 @@ class _CreateDevisSheetState extends ConsumerState<_CreateDevisSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur : $e'),
+              content: Text(_apiError(e)),
               backgroundColor: AppColors.danger),
         );
       }

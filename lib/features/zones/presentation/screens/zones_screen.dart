@@ -266,9 +266,13 @@ class _ZoneTile extends StatelessWidget {
                   const SizedBox(width: AppSizes.sm),
                   const Icon(Icons.location_on_outlined, size: 12, color: AppColors.gray400),
                   const SizedBox(width: 2),
-                  Text(
-                    '${zone.latitude!.toStringAsFixed(4)}, ${zone.longitude!.toStringAsFixed(4)}',
-                    style: const TextStyle(color: AppColors.gray400, fontSize: AppSizes.fontXs),
+                  Flexible(
+                    child: Text(
+                      '${zone.latitude!.toStringAsFixed(4)}, ${zone.longitude!.toStringAsFixed(4)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.gray400, fontSize: AppSizes.fontXs),
+                    ),
                   ),
                 ],
               ],

@@ -1,7 +1,9 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
+import 'package:djoulagest_mobile/core/errors/app_exception.dart';
 import 'package:djoulagest_mobile/core/network/api_endpoints.dart';
 import 'package:djoulagest_mobile/core/di/providers.dart';
 import 'package:djoulagest_mobile/core/utils/formatters.dart';
@@ -9,6 +11,18 @@ import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simu
 import 'package:djoulagest_mobile/features/sales/domain/entities/client_entity.dart';
 import 'package:djoulagest_mobile/features/sales/presentation/providers/sales_provider.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
+
+String _apiError(dynamic e) {
+  if (e is DioException && e.error is AppException) {
+    final ex = e.error as AppException;
+    if (ex is ValidationException && ex.fieldErrors.isNotEmpty) {
+      final entry = ex.fieldErrors.entries.first;
+      return '${entry.key} : ${entry.value.first}';
+    }
+    return ex.message;
+  }
+  return e.toString();
+}
 
 class ClientsScreen extends ConsumerStatefulWidget {
   const ClientsScreen({super.key});
@@ -21,11 +35,93 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
   final _searchCtrl = TextEditingController();
 
   static const _canCreate = ['commercial', 'caissier', 'admin', 'superviseur'];
+  static const _canEdit = ['admin', 'superviseur'];
 
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _showDetailSheet(ClientEntity client) {
+    final canEdit = _canEdit.contains(ref.read(effectiveRoleProvider));
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(AppSizes.radiusLg)),
+      ),
+      builder: (_) => _ClientDetailSheet(
+        client: client,
+        canEdit: canEdit,
+        onEdit: () {
+          Navigator.of(context).pop();
+          _showEditSheet(client);
+        },
+        onDelete: canEdit ? () => _deleteClient(client) : null,
+      ),
+    );
+  }
+
+  void _showEditSheet(ClientEntity client) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(AppSizes.radiusLg)),
+      ),
+      builder: (_) => _EditClientSheet(
+        client: client,
+        onSaved: () => ref.read(clientsProvider.notifier).refresh(),
+      ),
+    );
+  }
+
+  Future<void> _deleteClient(ClientEntity client) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer le client ?'),
+        content:
+            Text('Voulez-vous vraiment supprimer "${client.nomComplet}" ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.delete<void>('${ApiEndpoints.clients}${client.id}/');
+      await ref.read(clientsProvider.notifier).refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Client supprimé'),
+              backgroundColor: AppColors.secondary),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(_apiError(e)),
+              backgroundColor: AppColors.danger),
+        );
+      }
+    }
   }
 
   void _showCreateSheet() {
@@ -163,7 +259,10 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
                               child: CircularProgressIndicator()),
                         );
                       }
-                      return _ClientTile(client: state.clients[i]);
+                      return _ClientTile(
+                        client: state.clients[i],
+                        onTap: () => _showDetailSheet(state.clients[i]),
+                      );
                     },
                   ),
                 );
@@ -177,8 +276,9 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
 }
 
 class _ClientTile extends StatelessWidget {
-  const _ClientTile({required this.client});
+  const _ClientTile({required this.client, this.onTap});
   final ClientEntity client;
+  final VoidCallback? onTap;
 
   String get _initials {
     final parts = client.nomComplet.trim().split(' ');
@@ -192,7 +292,9 @@ class _ClientTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
       padding: const EdgeInsets.all(AppSizes.md),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -295,6 +397,7 @@ class _ClientTile extends StatelessWidget {
           ),
         ],
       ),
+      ),
     );
   }
 }
@@ -359,7 +462,7 @@ class _CreateClientSheetState extends ConsumerState<_CreateClientSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur : $e'),
+              content: Text(_apiError(e)),
               backgroundColor: AppColors.danger),
         );
       }
@@ -468,6 +571,333 @@ class _CreateClientSheetState extends ConsumerState<_CreateClientSheet> {
                               strokeWidth: 2, color: Colors.white),
                         )
                       : const Text('Créer le client'),
+                ),
+              ),
+              const SizedBox(height: AppSizes.md),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Détail client ────────────────────────────────────────────────────────────
+
+class _ClientDetailSheet extends StatelessWidget {
+  const _ClientDetailSheet({
+    required this.client,
+    required this.canEdit,
+    required this.onEdit,
+    this.onDelete,
+  });
+
+  final ClientEntity client;
+  final bool canEdit;
+  final VoidCallback onEdit;
+  final VoidCallback? onDelete;
+
+  String get _initials {
+    final parts = client.nomComplet.trim().split(' ');
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    return client.nomComplet.isNotEmpty
+        ? client.nomComplet.substring(0, 2).toUpperCase()
+        : '?';
+  }
+
+  Widget _infoRow(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSizes.xs),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 130,
+              child: Text(label,
+                  style: const TextStyle(
+                      fontSize: AppSizes.fontSm,
+                      color: AppColors.gray500,
+                      fontWeight: FontWeight.w500)),
+            ),
+            Expanded(
+              child: Text(value,
+                  style: const TextStyle(
+                      fontSize: AppSizes.fontSm,
+                      color: AppColors.gray900,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.paddingPage),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Text('Fiche client',
+                    style: TextStyle(
+                        fontSize: AppSizes.fontLg,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.gray900)),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSizes.sm),
+            Center(
+              child: Column(
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: AppColors.secondary.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(_initials,
+                          style: const TextStyle(
+                              color: AppColors.secondary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 20)),
+                    ),
+                  ),
+                  const SizedBox(height: AppSizes.xs),
+                  Text(client.nomComplet,
+                      style: const TextStyle(
+                          fontSize: AppSizes.fontMd,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.gray900)),
+                  Text(client.code,
+                      style: const TextStyle(
+                          fontSize: AppSizes.fontXs, color: AppColors.gray400)),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSizes.md),
+            const Divider(),
+            const SizedBox(height: AppSizes.xs),
+            if (client.telephone != null)
+              _infoRow('Téléphone', client.telephone!),
+            if (client.prenom != null)
+              _infoRow('Prénom', client.prenom!),
+            if (client.pointsFidelite > 0)
+              _infoRow('Points fidélité',
+                  '${client.pointsFidelite.toInt()} pts'),
+            if (client.hasCredit)
+              _infoRow('Solde crédit', AppFormatters.gnf(client.soldeCredit)),
+            if (canEdit) ...[
+              const SizedBox(height: AppSizes.lg),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_rounded, size: 18),
+                  label: const Text('Modifier'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding:
+                        const EdgeInsets.symmetric(vertical: AppSizes.md),
+                    shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(AppSizes.radiusMd)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSizes.sm),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                  label: const Text('Supprimer'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.danger,
+                    side: const BorderSide(color: AppColors.danger),
+                    padding:
+                        const EdgeInsets.symmetric(vertical: AppSizes.md),
+                    shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(AppSizes.radiusMd)),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSizes.md),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Formulaire modification client ──────────────────────────────────────────
+
+class _EditClientSheet extends ConsumerStatefulWidget {
+  const _EditClientSheet({required this.client, required this.onSaved});
+  final ClientEntity client;
+  final VoidCallback onSaved;
+
+  @override
+  ConsumerState<_EditClientSheet> createState() => _EditClientSheetState();
+}
+
+class _EditClientSheetState extends ConsumerState<_EditClientSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _codeCtrl;
+  late final TextEditingController _nomCtrl;
+  late final TextEditingController _prenomCtrl;
+  late final TextEditingController _telCtrl;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _codeCtrl = TextEditingController(text: widget.client.code);
+    _nomCtrl = TextEditingController(text: widget.client.nom);
+    _prenomCtrl = TextEditingController(text: widget.client.prenom ?? '');
+    _telCtrl = TextEditingController(text: widget.client.telephone ?? '');
+  }
+
+  @override
+  void dispose() {
+    _codeCtrl.dispose();
+    _nomCtrl.dispose();
+    _prenomCtrl.dispose();
+    _telCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSaving = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.patch<Map<String, dynamic>>(
+        '${ApiEndpoints.clients}${widget.client.id}/',
+        data: {
+          'code': _codeCtrl.text.trim(),
+          'nom': _nomCtrl.text.trim(),
+          if (_prenomCtrl.text.trim().isNotEmpty)
+            'prenom': _prenomCtrl.text.trim(),
+          if (_telCtrl.text.trim().isNotEmpty)
+            'telephone': _telCtrl.text.trim(),
+        },
+      );
+      if (mounted) {
+        Navigator.of(context).pop();
+        widget.onSaved();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Client mis à jour'),
+              backgroundColor: AppColors.secondary),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(_apiError(e)),
+              backgroundColor: AppColors.danger),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSizes.paddingPage),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Text('Modifier le client',
+                      style: TextStyle(
+                          fontSize: AppSizes.fontLg,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.gray900)),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSizes.md),
+              TextFormField(
+                controller: _codeCtrl,
+                decoration: const InputDecoration(
+                    labelText: 'Code *', border: OutlineInputBorder()),
+                textCapitalization: TextCapitalization.characters,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Requis' : null,
+              ),
+              const SizedBox(height: AppSizes.sm),
+              TextFormField(
+                controller: _nomCtrl,
+                decoration: const InputDecoration(
+                    labelText: 'Nom *',
+                    border: OutlineInputBorder()),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Requis' : null,
+              ),
+              const SizedBox(height: AppSizes.sm),
+              TextFormField(
+                controller: _prenomCtrl,
+                decoration: const InputDecoration(
+                    labelText: 'Prénom', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: AppSizes.sm),
+              TextFormField(
+                controller: _telCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                    labelText: 'Téléphone', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: AppSizes.lg),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding:
+                        const EdgeInsets.symmetric(vertical: AppSizes.md),
+                    shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(AppSizes.radiusMd)),
+                  ),
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Enregistrer'),
                 ),
               ),
               const SizedBox(height: AppSizes.md),

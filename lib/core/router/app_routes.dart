@@ -14,6 +14,11 @@ abstract class AppRoutes {
   static const String dashboard = '/dashboard';
   static const String profile = '/profile';
   static const String notifications = '/notifications';
+  static const String reports = '/reports';
+
+  // Paramètres (hub — tous rôles, sections filtrées)
+  static const String settings = '/settings';
+  static const String auditLogs = '/settings/audit-logs';
 
   // Administration (superadmin & admin)
   static const String admin = '/admin';
@@ -24,6 +29,7 @@ abstract class AppRoutes {
 
   // Stocks
   static const String inventory = '/inventory';
+  static const String inventoryEntree = '/inventory/entree';
   static const String inventoryMovements = '/inventory/movements';
   static const String inventoryBarcode = '/inventory/scan';
   static const String inventoryTransfer = '/inventory/transfer';
@@ -44,9 +50,11 @@ abstract class AppRoutes {
   static const String financeMobileMoney = '/finance/mobile-money';
   static const String financeCaisses = '/finance/caisses';
   static const String financeConfig = '/finance/configuration';
+  static const String caisseEntrepriseConfig = '/finance/caisse-entreprise';
 
   // Logistique
   static const String logistics = '/logistics';
+  static const String vehicules = '/logistics/vehicules';
   static const String missionDetail = '/logistics/:id';
   static const String qrScan = '/logistics/qr-scan';
   static const String signature = '/logistics/signature';
@@ -57,7 +65,9 @@ abstract class AppRoutes {
 
   // RH
   static const String hr = '/hr';
-  static const String attendance = '/hr/attendance';
+  // Route top-level (pas sous /hr) pour ne PAS instancier EmployeesScreen (=/users/)
+  // quand un rôle opérationnel ouvre le pointage/congés.
+  static const String attendance = '/attendance';
 
   // Fournisseurs
   static const String suppliers = '/suppliers';

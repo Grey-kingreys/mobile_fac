@@ -1,6 +1,6 @@
 # DjoulaGest Mobile — CLAUDE.md
 
-> CDC v1.0 — Mars 2026 | Groupe 1 | Deadline livraison : **20/06/2026** | Mis à jour : 18/06/2026 (session 2)
+> CDC v1.0 — Mars 2026 | Groupe 1 | Deadline livraison : **20/06/2026** | Mis à jour : 18/06/2026 (session 3)
 
 ## ⛔ RÈGLE ABSOLUE — À lire avant toute action
 
@@ -8,6 +8,197 @@
 > Rôle par défaut : lire, analyser, rapporter. Attendre un "vas-y", "corrige", "fixe" ou "applique" explicite avant tout Edit/Write.
 
 ## État d'avancement (17/06/2026)
+
+### Vente — fix 400 mode_paiement + compte Mobile Money à l'encaissement (20/06/2026)
+
+**(1) Fix 400 enregistrement vente** (`new_sale_screen.dart`) : le mobile envoyait le **canal**
+(`especes`/`orange_money`/…) dans `mode_paiement`, or `Commande.ModePaiement` n'accepte que
+`comptant`/`partiel`/`credit` → 400. Désormais `mode_paiement` est **dérivé du montant payé**
+(`credit` si 0, `partiel` si < total, sinon `comptant`) ; le canal reste dans `mode_paiement_initial`.
+
+**(2) Compte Mobile Money crédité** (parité web + CDC §3.6) : quand le mode est Orange/MTN, un
+**sélecteur de compte** apparaît (en plus de la référence obligatoire). Comptes chargés via
+`GET /comptes-mobile-money/?page_size=100` dans `initState` (`_loadMobileMoneyAccounts`,
+`CompteMobileMoneyEntity`), filtrés client-side sur `is_active` + opérateur du mode choisi
+(`_filteredAccounts`). `_selectedCompteMmId` reset à chaque changement d'opérateur ; validation
+« compte obligatoire » avant envoi ; `compte_mobile_money` ajouté au payload (`createSale` threadé
+datasource→repo→impl). Si aucun compte de l'opérateur → bandeau « Ajoutez-en un dans Finance → Mobile
+Money ». ⚠️ Nécessite la migration backend **`ventes/0004`** déployée (FK `Paiement.compte_mobile_money`
++ crédit du solde + `TransactionMobileMoney` PAIEMENT_RECU). `flutter analyze lib` = **No issues found**.
+
+### 🐞 Fix commande fournisseur — sélecteur « produit à commander » inerte (20/06/2026)
+
+**Symptôme** : dans la création d'une commande fournisseur, taper sur « Choisir un produit »
+ne faisait **rien** (le dialogue ne s'ouvrait jamais). Feature **mobile-only** (le web n'a aucune
+gestion de commandes fournisseurs).
+
+**Cause** (`commandes_fournisseurs_screen.dart`, `_LigneRow._pickProduit`) :
+`ref.read(productsSearchProvider('')).valueOrNull ?? []` → `productsSearchProvider` est un
+`FutureProvider.autoDispose` **jamais watché** dans cet écran. Au 1ᵉʳ tap il est en `AsyncLoading`
+→ `valueOrNull == null` → liste vide → `if (all.isEmpty) return;` → dialogue jamais ouvert (et
+autoDispose le jette aussitôt → ne se charge jamais).
+
+**Correctif** : `await ref.read(productsSearchProvider('').future)` (attend réellement la donnée) +
+messages si liste vide / erreur (snackbar) + **champ de recherche** dans le dialogue (liste plafonnée
+à 50 produits) avec filtrage local nom/référence. `flutter analyze lib/features/suppliers` = **No issues found**.
+⚠️ Pattern à surveiller : ne jamais lire `.valueOrNull` d'un FutureProvider autoDispose non watché —
+utiliser `await ...future` ou `ref.watch`.
+
+### 🐞 Fix ANR « Présences & Congés » + bouton de pointage toujours visible (20/06/2026)
+
+**1. ANR à l'ouverture de Présences & Congés** (capturé via `flutter run` + logcat, device R94XC0DT1WJ).
+Erreur Dart : `RenderFlex children have non-zero flex but incoming width constraints are unbounded`
+puis `BoxConstraints forces an infinite width` sur l'`ElevatedButton` « Présent »
+([attendance_screen.dart](features/hr/presentation/screens/attendance_screen.dart) `_PointageCard._buildBouton`).
+La `Row` de la carte contient un `Expanded` ; sous `TabBarView`, la largeur entrante peut être **non bornée**
+lors de certaines passes de layout → frame jamais peint → écran blanc + **ANR**. Bug **exposé** maintenant
+que le backend renvoie `a_fiche_employe=true` pour tous (la carte s'affiche toujours).
+**Correctif (2 temps)** :
+- 1ʳᵉ passe : `_PointageCard.build` enveloppé dans un `LayoutBuilder` bornant sa largeur → réglait la
+  carte **mais pas le reste** de l'onglet. La page replantait pour un **manager** (admin/superviseur) car
+  l'onglet Présences affiche aussi `_RecapBanner` (Row + Spacer) et une **`ListView`** verticale — eux aussi
+  victimes de la largeur infinie.
+- ✅ **Correctif définitif** : `LayoutBuilder` au niveau du **`body` entier** de l'écran (au‑dessus du
+  `TabBar`/`TabBarView`) → `SizedBox(width: maxWidth.isFinite ? maxWidth : MediaQuery.sizeOf(...).width)`.
+  En bornant la largeur à la racine, **tout** le contenu des onglets (carte, récap, listes) est protégé d'un
+  coup. Le `LayoutBuilder` interne de `_PointageCard` est conservé (défense en profondeur).
+
+Règle : sous `TabBarView`, le contenu doit recevoir une largeur **bornée** — borner au niveau du body est
+plus robuste que widget par widget (cf. aussi le fix Finance `_SessionKpi`).
+
+**2. Bouton de pointage masqué pour certains comptes.** `_PointageCard` se masquait quand
+`status.aFicheEmploye == false`. Or le modèle backend est « employés = utilisateurs » : la fiche `Employe`
+est créée automatiquement au 1ᵉʳ pointage (`POST /presences/pointer/`, `_employe_du_user(create=True)`), et
+`GET /presences/aujourdhui/` renvoie `a_fiche_employe=true` dès qu'un user a une entreprise. Le verrou
+`aFicheEmploye` est donc obsolète. **Correctif** : retiré → la carte/bouton s'affiche à **tout** membre
+d'entreprise ; seul `dejaPointe` bascule vers l'état « Présence enregistrée ». ⚠️ Nécessite le backend
+auto-provision **déployé** (`back_fac` `apps/rh/views.py`, sans migration → `docker compose up -d --build`)
+pour que le pointage aboutisse sur un compte sans fiche préexistante.
+
+### RH — routage corrigé + présence 100% self-service + récap user-based (20/06/2026)
+
+Bugs critiques corrigés après tests utilisateur.
+
+- **Routage RH cassé** : `AppRoutes.hr` (`/hr`) charge **`EmployeesScreen`** (liste `/users/`), pas le pointage.
+  Mes entrées de nav y pointaient → tout le monde tombait sur la liste des utilisateurs (403 non-admin).
+  Corrigé : `AppRoutes.attendance` passé en **route top-level** (`/attendance`, plus sous `/hr` — évite
+  d'instancier `EmployeesScreen` en parent via GoRouter). Drawer « Mon espace » + bottom bar « Présence »
+  des rôles opérationnels → `AppRoutes.attendance` (`AttendanceScreen`). Admin/superviseur : entrée
+  « Présences & Congés » → attendance **en plus** de « Ressources Humaines » → users.
+- **Formulaire « Nouvelle présence » + FAB présence SUPPRIMÉS** (`attendance_screen.dart`) : présence
+  100 % self-service ; le FAB n'apparaît que sur l'onglet Congés (`_AddPresenceSheet`/`_showAddPresenceSheet`/
+  `_canCreatePresence` retirés).
+- **Récap user-based** + **auto-provision backend** : l'effectif/absents = utilisateurs de l'entreprise ;
+  un employé sans fiche peut pointer (fiche créée à la volée). `flutter analyze lib` = **No issues found**.
+
+### 🐞 Fix ANR Finance — `Expanded` dans une `Column` de `ListView` (20/06/2026)
+
+**Symptôme** : « dès que je rentre dans Finance, l'app se fige » (ANR « DjoulaGest ne répond pas »)
+**dès qu'une session est ouverte** ; impossible de voir la session après l'avoir ouverte.
+
+**Cause racine** (capturée via `flutter run` + logcat sur device R94XC0DT1WJ) :
+`RenderBox was not laid out` / `'child.hasSize': is not true` / `Null check used on null`. Le KPI
+**« Solde calculé »** de `_ActiveSessionCard` était un `_SessionKpi(large: true)` **autonome**, et
+`_SessionKpi` renvoie un **`Expanded`**. Un `Expanded` (flex) placé directement dans la `Column` de la
+carte — elle-même enfant d'un `ListView` (hauteur **non bornée**) — est invalide → échec de layout →
+frame jamais peint → **ANR**. Bug **latent** : ne se déclenchait que sur la branche « session ouverte »
+(`if (session != null && isOpen)`), donc invisible tant qu'aucune session n'était ouverte sur le compte.
+
+**Correctif** (`cash_session_screen.dart`) : `_SessionKpi` prend un flag **`expand`** (défaut `true` pour
+l'usage en `Row`) ; quand `false`, il renvoie un `SizedBox(width: double.infinity)` au lieu d'`Expanded`.
+Le KPI autonome « Solde calculé » passe `expand: false`. **Règle** : ne jamais mettre un `Expanded`
+directement dans une `Column` rendue par un `ListView`. Vérifié sur device : carte session ouverte rendue,
+0 exception, plus d'ANR. `flutter analyze lib/features/finance` = **No issues found**.
+
+### RH self-service — 2ᵉ vague : navigation, absents, motif de refus (20/06/2026)
+
+Corrections suite à un audit complet du module RH self-service.
+
+- **Navigation RH ouverte à tout le personnel** : `app_drawer.dart` — nouvelle section **« Mon espace →
+  Présences & Congés »** (`_monEspaceSection`) ajoutée aux 5 rôles opérationnels (gestionnaire_stock,
+  caissier, chauffeur, maintenancier, commercial ; admin/superviseur l'avaient déjà). `bottom_nav_bar.dart`
+  — item **« RH »** ajouté à ces 5 rôles (admin/superviseur déjà présents → **pas de doublon**, 7 occ./7 rôles).
+  Sinon les employés ne peuvent pas pointer / demander un congé.
+- **Liste présences réservée aux managers** : `GET /presences/` = `RH_READ` (admin/superviseur) backend.
+  `_PresencesTab` ne `watch` `presencesProvider` **que** si `canViewRecap` ; les autres rôles n'ont que la
+  carte de pointage + un message (évite un 403).
+- **Récap du jour (absents)** : `_RecapBanner` (admin/superviseur) consomme `GET /presences/recap/`
+  (`presenceRecapProvider`) → présents / absents / effectif + liste dépliable. Chaîne Clean Arch :
+  `PresenceRecap`(+`RecapAbsent`)/`PresenceRecapModel`, datasource `getPresenceRecap`, repo, provider,
+  endpoint `presenceRecap`.
+- **Motif de refus de congé** : `_showRefuseDialog` (saisie motif) → `refuserConge(id, motif:)` →
+  `POST /conges/{id}/refuser/ {motif_traitement}`. Affichage « Motif du refus : … » sur les congés refusés
+  (`CongeEntity.motifTraitement` + parsing `motif_traitement`).
+- **FAB Présence masqué** pour les non-admins (plus de snackbar « pas les droits ») ; `_canCreatePresence`
+  aligné sur **admin** (= `RH_WRITE`). **Fix faux-erreur** : un échec de `refresh()` après un pointage réussi
+  n'affiche plus de message d'erreur (try/catch dans `pointer()`).
+- `flutter analyze lib` = **No issues found**.
+
+### Ouverture de session caisse par admin/superviseur — parité web (20/06/2026)
+
+**Symptôme** : impossible d'ouvrir une session de caisse côté mobile sauf en tant que
+caissier — l'admin/superviseur ne voyait aucun bouton « Ouvrir une session ».
+
+**Cause** : dans `cash_session_screen.dart`, le bloc CTA de `_ActiveSessionCard` était gardé
+`if (isCaissier)`, et `_OpenSessionDialog` ne savait qu'auto-résoudre la caisse depuis le
+dépôt de l'utilisateur (un admin n'a pas de `depot_id`). Le web, lui, montre le bouton aux
+non-caissiers en permanence + un **sélecteur de caisse** (`finance.html`/`finance.ts`).
+
+**Correctif (parité web)** :
+- `finance_provider.openSession({required num soldeOuverture, int? caisseId})` : si `caisseId`
+  fourni (admin/superviseur) → ouverture directe sur cette caisse ; sinon (caissier) →
+  auto-résolution depuis `effectiveUserProvider.depotId` (comportement existant inchangé).
+- `cash_session_screen.dart` : bouton « Ouvrir une session » désormais affiché aussi aux
+  **non-caissiers** (branche `else` du CTA). Nouveau widget `_CaissePicker` (consomme
+  `caissesProvider`) dans `_OpenSessionDialog`, gaté `!isCaissier`.
+  `_showOpenDialog`/`_OpenSessionDialog.show` prennent `required bool isCaissier`. Fermeture
+  de session inchangée (reste caissier).
+- **Choix de la caisse — contrainte backend** : `CaissePhysique` n'autorise **qu'une caisse
+  ouverte par dépôt** (`UniqueConstraint(depot, condition=statut='ouverte')`), pas une seule
+  par entreprise. Donc `_CaissePicker` ne propose que les caisses **actives ET ouvertes**
+  (`isActive && isOuverte`) : s'il n'y en a **qu'une** (cas mono-dépôt) → elle est prise
+  d'office et affichée en lecture seule (`_SelectedCaisseTile`) ; s'il y en a **plusieurs**
+  (multi-dépôts) → menu déroulant. Aucune caisse ouverte → message d'erreur (rien à ouvrir).
+- `flutter analyze lib/features/finance` = **No issues found**.
+
+### RH self-service : pointage présence géolocalisé + demande de congé (20/06/2026)
+
+`AttendanceScreen` passé en self-service (parité web). ⚠️ nécessite le backend RH déployé
+(migrations `companies/0007`, `rh/0003`, `notifications/0002`).
+
+- **Pointage présence géolocalisé** : carte `_PointageCard` (`ConsumerStatefulWidget`) en haut de l'onglet
+  Présences. Bouton « Présent » → `Geolocator` (service activé + permission `requestPermission`) →
+  `presencesProvider.notifier.pointer(lat, lon)` → `POST /presences/pointer/`. État piloté par
+  `myPresenceProvider` (`GET /presences/aujourdhui/`) : si `dejaPointe`, la carte affiche « Présence
+  enregistrée · pointé à HH:MM · à X m / hors site » (le bouton ne revient que le lendemain). Si pas de
+  fiche employé liée → carte masquée. Badge **Sur site / Hors site** (`dansPerimetre`) dans `_PresenceTile`.
+  Le sheet de saisie manuelle admin (`POST /presences/`) est conservé.
+- **Demande de congé self-service** : `_AddCongeSheet` — champ « ID Employé » **retiré** (le backend déduit
+  l'employé du compte), `create()` n'envoie plus `employe`, + bandeau « transmis à votre responsable ». FAB
+  Congé déjà ouvert à tous. Validation `approuver`/`refuser` inchangée (admin/superviseur).
+- **Chaîne Clean Arch** : `PresenceEntity`/`Model` + champs géo, `PresenceTodayStatus(Model)`, datasource
+  (`pointerPresence`, `getPresenceAujourdhui`), repo + impl, provider (`myPresenceProvider`, `pointer()`),
+  endpoints `presencePointer`/`presenceAujourdhui`.
+- **Permissions localisation ajoutées** (manquaient — bloquaient aussi le GPS missions) :
+  `AndroidManifest.xml` (`ACCESS_FINE/COARSE_LOCATION`) + `Info.plist` (`NSLocationWhenInUseUsageDescription`).
+- `flutter analyze lib` = **No issues found**.
+
+### Rapports & Analyses — parité avec le web (20/06/2026)
+
+Le web avait une page **Rapports** (`/rapports`) absente du mobile. Ajout de la feature `reports/` complète
+(Clean Arch) en miroir exact du front : entités (`ReportData` + `VentesAnalytics`/`StockAnalytics`/`FinanceAnalytics`,
+chaque bloc nullable comme le `catchError(() => of(null))` du web), datasource consommant les **3 endpoints
+analytics déjà définis** (`GET /analytics/ventes|stock|finance/?debut=YYYY-MM-DD&fin=YYYY-MM-DD`), repo, provider
+(`AutoDisposeAsyncNotifier` + `reportPeriodProvider` StateProvider today/week/month/year), écran. Contenu identique
+au web : filtre période, KPIs ventes (commandes, CA TTC, encaissé, alertes stock), bloc finance
+(recettes/dépenses/solde net), **CA par dépôt** (barres), **top produits sortie**, **produits en alerte**, état vide.
+Décimaux parsés en `num` robuste (DRF renvoie des strings). Route `AppRoutes.reports = '/reports'` + `GoRoute` +
+entrée drawer « Rapports & Analyses » (icône bar_chart) pour **admin** et **superviseur** uniquement (le superadmin
+reste SaaS-only ; les analytics sont des données internes d'entreprise). `flutter analyze lib` = **No issues found**.
+
+> **Écart restant identifié** (web a / mobile n'a pas) : **Documents** (gestion documentaire générale `/api/documents/`).
+> Le mobile n'a que `documents-vehicule` (logistique). Catégories, Unités, Fournisseurs, etc. existent déjà côté mobile.
+> Non implémenté (hors périmètre de la demande « page rapport ») — à valider avec l'utilisateur avant build.
 
 ### ✅ Terminé
 
@@ -51,6 +242,64 @@
 | **EmployeesScreen → /users/** | Écran réécrit : liste depuis `GET /users/` (employees = utilisateurs système), avatar coloré par rôle, badge rôle, email + dépôt affiché. Création via `POST /users/` avec tous les champs. `hrProvider` (employes RH) conservé pour AttendanceScreen. |
 | **Drawer mis à jour** | Fournisseurs, Dépenses, Mobile Money ajoutés dans les menus admin/superviseur/caissier/gestionnaire_stock |
 | **Auth — 2FA** | `TwoFactorScreen` (6 boîtes OTP, resend 60s), `TwoFactorSetupScreen` (choix méthode → QR/email → vérification), `_TwoFactorCard` dans `ProfileScreen` (activer/désactiver), router redirige auto vers `/two-factor` si 2FA pending — `twoFactorPendingProvider`, `TwoFactorPending`, `TwoFactorRequiredException` |
+| **Finance — Config caisses** | `CaisseConfigScreen` (`/finance/configuration`) : admin lecture/écriture, autres rôles lecture seule. Hiérarchie visuelle Zone → Dépôt → Session avec flèches connectrices. `_humanize()` convertit jours en mois/semaines. Validation client `session < depot < zone` avant PATCH. Note : CaisseEntreprise permanente (jamais fermée). Endpoint `GET/PATCH /configuration-caisses/` |
+| **RH — Création superviseur** | `employees_screen.dart` : sélecteur conditionnel zone/dépôt selon le rôle choisi. Si `superviseur` → dropdown "Zone de supervision *" (obligatoire), envoie `zone_id`. Sinon → dropdown "Dépôt" (optionnel), envoie `depot_id`. Watch `zonesProvider` dans `build()` |
+| **Finance — Gating caisses** | `caisses_screen.dart` : FAB "Ouvrir" et bouton "Fermer" conditionnels sur `canManage` (admin uniquement). Paramètre `required bool canManage` sur `_CaissesList`. Les deux onglets (CaissesPhysiques + CaissesZone) passent `canManage: role == 'admin'` |
+| **Users — Désactiver / Réactiver / Supprimer** (19/06) | `employees_screen.dart`, 3 actions admin distinctes : **Désactiver** (`deleteUser` → `DELETE /users/{id}/`, soft, `is_active=False`, réactivable, reste visible « Inactif ») · **Réactiver** (`updateUser {is_active:true}`) · **Supprimer** (`purgeUser` → `DELETE /users/{id}/supprimer/`). Côté backend, `supprimer` = purge physique si l'user n'a **aucun** historique, sinon **archivage tombstone** (`is_deleted=True` : retiré des listes mais ligne conservée → nom+email lisibles sur l'historique ; FK PROTECT respectées, caisses immuables préservées). Endpoint `userSupprimer(id)`. ⚠️ Nécessite migration backend `accounts/0009` + déploiement (le `back_fac` local divergeait du déployé). |
+| **Produits — chargement KO + formulaire** (19/06) | (1) `product_model.fromJson` castait `prix_achat`/`prix_vente`/`tva_taux`/`seuil_*` en `num` → ce sont des `DecimalField` (strings DRF) → crash → « impossible de charger les produits » après création. Corrigé avec helpers `_num`/`_numN` (idem catégories). (2) Champ **TVA retiré** du formulaire produit (CDC §9 : TVA = global + par **catégorie**, pas par produit ; le produit hérite de sa catégorie). (3) Note ajoutée : quantité de stock & dates de péremption se saisissent **par dépôt / par lot à l'entrée de stock**, pas sur la fiche produit. ✅ **Résolu** : écran « Entrée de stock » créé (voir ligne suivante). |
+| **Nouvelle vente — sélecteur dépôt (19/06)** | `new_sale_screen.dart` : la vente était **refusée** quand l'utilisateur n'avait pas de dépôt associé (cas admin, `depot_id: null`) → « aucun dépôt associé ». Ajout d'un **DropdownButtonFormField « Dépôt source * »** (charge `GET /depots/?page_size=100&is_active=true` dans `initState`, présélectionne le dépôt de l'utilisateur s'il en a un, ou l'unique dépôt sinon). `_valider()` utilise désormais `_depotId` sélectionné (message « Sélectionnez le dépôt source de la vente » si vide). CDC §3.5 : « commandes avec sélection du dépôt source ». `flutter analyze` fichier = 0 issue. |
+| **Scanner QR mission — isolation entreprise (19/06)** | ⚠️ **Backend** `logistique/views.py` : `scanner_qr` filtrait `Mission.objects.get(qr_code=...)` sans `company` → un chauffeur pouvait théoriquement scanner le QR d'une mission d'une autre entreprise. Ajout `company=request.user.company` au lookup (règle universelle #8 isolation SaaS). À déployer. |
+| **Décimal — sweep complet (19/06)** | Tous les `as num` restants sur des `DecimalField` (renvoyés en string par DRF) → parsing robuste : `client_model` (solde_credit), `sale_model` (montants), `new_sale_screen` (prix_vente ×2 → **fix « nouvelle vente ne charge pas clients/produits »**), `transaction_model` (montant), `cash_session_model` (soldes/écart/totaux), `mission_model` (LigneMission quantités). Plus aucun `as num` brut dans `lib/features`. |
+| **Config caisse entreprise (19/06)** | Écran `CaisseEntrepriseConfigScreen` (`/finance/caisse-entreprise`, route `AppRoutes.caisseEntrepriseConfig`) : intitulé + devise, GET `/caisse-entreprise/me/`, PATCH `/caisse-entreprise/configurer/` (backend `get_or_create` → règle aussi les entreprises pré-existantes). Entrée Paramètres → Finance (admin). first-login guide vers Paramètres après connexion. |
+| **Lot correctifs test (19/06)** | **Décimal** : `stock_model`, `movement_model` (+ `AjustementModel`) castaient `quantite`/`seuil` en `as num?` → DRF renvoie des strings → crash « impossible de charger » dès la 1ʳᵉ ligne. Corrigé (`_num`/`_numN` robustes). **Documents véhicule** : `DocumentsVehiculeScreen` n'avait aucun bouton → FAB + `_DocCreateSheet` (`POST /documents-vehicule/` : véhicule, type, date expiration, notes ; admin/superviseur/maintenancier). **Stock** : FAB « Entrée de stock » ajouté sur `StockScreen` (admin/gestionnaire_stock) → `/inventory/entree`. |
+| **Lot corrections (audit 19/06)** | **#5** liste entreprises super-admin : datasource lit `companies` (et fallback `results`) — le backend renvoie `data:{count, companies}`, plus `results` (count=3 mais liste vide). **#7** Mobile Money : FAB « Associer un compte » (admin/`FINANCE_WRITE`) + `_AddCompteSheet` → `POST /comptes-mobile-money/` (opérateur, dépôt, numéro, titulaire). **#8** Inventaires : bandeau explicatif (comptage physique vs théorique → écart → ajustement). **#9** Missions : sélecteur **type de mission** (transfert/livraison/enlèvement) threadé datasource→repo→provider→form (`type_mission`, défaut transfert). `flutter analyze` projet = 0 issue. |
+| **Véhicules / Flotte** (19/06) | Nouveau `VehiculesScreen` (`/logistics/vehicules`, `AppRoutes.vehicules`) : liste paginée + CRUD (immatriculation, type, marque, modèle, année, capacité, statut). Consomme `GET/POST/PATCH/DELETE /vehicules/`. Écriture gatée **admin + maintenancier** (`_canWrite`). Drawer : maintenancier « Flotte & Véhicules » repointé → cet écran (+ entrée « Missions » séparée) ; admin → entrée « Véhicules » ajoutée. **Raison** : la création de mission imposait un véhicule mais aucun écran ne permettait d'en créer (datasource avait seulement `getVehiculesSimple`). Modèle = flotte **entreprise** (Vehicule a seulement FK company, pas depot/zone). ⚠️ **Backend** : `LOG_WRITE_VEHICLE = [ADMIN, MAINTENANCIER]` (était `[ADMIN]`) dans `logistique/views.py` — à déployer. |
+| **Entrée de stock (approvisionnement)** (19/06) | Nouveau `StockEntreeScreen` (`/inventory/entree`, `AppRoutes.inventoryEntree`) : dépôt + produit + quantité + référence ; si produit **périmable** → champs **n° de lot** + **date d'expiration** (date picker) obligatoires pour la FEFO. Consomme `POST /stocks/entree/` via `inventoryRepositoryProvider.stockEntree` (datasource/repo/interface étendus avec `numeroLot`/`dateExpiration` — additif, ne casse rien). Invalide `inventoryProvider` après succès. Entrées drawer « Entrée de stock » ajoutées (gestionnaire_stock + admin). Rôles backend : ADMIN/GESTIONNAIRE_STOCK. `flutter analyze` projet entier = 0 issue. |
+| **Zones/Dépôts — erreurs masquées + carte dépôt** (19/06) | (1) `zones_provider._msg` et `depots_provider._msg` renvoyaient `e.toString()` (DioException brut) → la vraie cause d'un échec de création (ex. « Ce code est déjà utilisé par une autre zone dans votre entreprise », « Une zone avec ce nom existe déjà », « Cette zone n'appartient pas à votre entreprise ») était invisible. Corrigé : extraction de l'`AppException`/`ValidationException` depuis `DioException.error` (comme le login). (2) `depots_screen` : le formulaire dépôt utilisait des champs texte manuels pour lat/long → remplacés par le **sélecteur de carte** `MapPickerSheet` + `_PositionPickerTile` (identique aux zones). (3) **CAUSE RACINE du 400 création zone/dépôt** : backend `latitude`/`longitude` = `DecimalField(max_digits=9, decimal_places=6)` → max **6 décimales**. Le sélecteur de carte renvoie un double haute précision (≈15 décimales) → 400. Corrigé dans `zone_model.toJson` + `depot_model.toJson` : `latitude.toStringAsFixed(6)` (envoi en string à 6 décimales). |
+| **Fix refresh token — déconnexion prématurée** (19/06) | Backend : access=60 min, refresh=7 j (`ROTATE_REFRESH_TOKENS`+`BLACKLIST_AFTER_ROTATION`). Bug : `build()` (auth_provider) et `isAuthenticatedProvider` (providers.dart) décidaient la session via `hasValidToken()` qui ne teste que l'**access** → l'app déconnectait dès 60 min même avec un refresh token valide 7 j (le refresh n'était jamais utilisé au démarrage à froid / garde-fou routeur). **Corrigé** : ajout `SecureStorageService.hasSession()` (access valide **OU** refresh valide, via `_isJwtValid` factorisé) ; `build()` + `isAuthenticatedProvider` l'utilisent. Access expiré + refresh valide → `GET /auth/me/` 401 → AuthInterceptor rafraîchit → session restaurée. L'interceptor lui-même (rotation, resauvegarde du nouveau refresh, retry via Dio neuf, garde-fou concurrence) était déjà correct. |
+| **Fix login — erreurs invisibles** (19/06) | Identifiants invalides → backend renvoie **401** `{detail}` (et **403** compte désactivé/bloqué). Bug : `AuthInterceptor.onError` traitait **tout** 401 comme session expirée, y compris sur `/auth/login/` → tentait un refresh inutile **puis `onLogout()`** (invalide `isAuthenticatedProvider` → refresh routeur en plein vol) qui faisait disparaître le SnackBar. **Corrigé** : (1) `AuthInterceptor` ignore les endpoints du flux d'auth (`_authFlowPaths` : login/refresh/2fa-login-verify/2fa-resend/password-reset(+confirm)/first-login) ; (2) `ErrorInterceptor` propage le message backend pour 401/403 (`UnauthorizedException(message)` / `ForbiddenException(message)`) ; (3) `login_screen._errorMessage` lit `DioException.error` (AppException typée) au lieu de matcher la chaîne brute → message fiable (identifiants / compte bloqué / réseau). |
+| **Paramètres (hub) + Journaux d'audit** (19/06) | Nouvelle page `SettingsScreen` (`/settings`, route `AppRoutes.settings`) accessible à **tous les rôles** mais sections filtrées par rôle (`_roleSections` interne) : carte profil → `/profile`, Configuration entreprise (Zones/Dépôts), Finance (Config caisses), Catalogue (Catégories/Unités), **Sécurité & traçabilité (admin/superadmin uniquement)**, Compte (profil/notifs), Déconnexion. Nouvelle feature `audit/` (entity+model+datasource+provider+screen) : `AuditLogsScreen` (`/settings/audit-logs`) à 2 onglets **Audit** (filtres action create/update/delete + modèle CustomUser/Zone/Depot) et **Connexions** (filtre réussies/échouées), consomme `GET /audit-logs/` + `/login-logs/` (champs alignés sur les serializers Django). **Blocage frontend des logs** = la section "Sécurité" n'apparaît que pour admin/superadmin (backend renvoie 403 aux autres). **Drawer allégé** : Zones, Dépôts, Config. caisses, Catégories, Unités, Notifications, Mon profil retirés des menus → remplacés par une entrée unique "Paramètres" (`_compteSection` commune). |
+
+### Ouverture de session caisse — « pas associé à un dépôt » (20/06/2026)
+
+**Symptôme** : un admin qui **simule** un caissier (lui bien rattaché à un dépôt) ne pouvait pas
+ouvrir de session → « Aucun dépôt associé à votre compte ».
+
+**Cause racine** : `finance_provider.openSession()` lisait le dépôt depuis **`authProvider`**
+(l'utilisateur réellement connecté = l'admin, `depot_id=null`) au lieu de **`effectiveUserProvider`**
+(le caissier simulé, qui porte bien `depot_id`). L'UI s'appuie déjà sur `effectiveRoleProvider`
+→ incohérence. **Corrigé** : `openSession` lit `ref.read(effectiveUserProvider)?.depotId`
+(`finance_provider.dart`, import `role_simulation_provider`).
+
+**Garde-fou associé — dépôt obligatoire** (`employees_screen.dart`, formulaires création + édition) :
+les rôles opérationnels rattachés à un dépôt (caissier, commercial, chauffeur, gestionnaire_stock,
+maintenancier — `_depotRoles`/`_needsDepot`) ont désormais un **validator** sur le dropdown « Dépôt »
+(option « Aucun dépôt » masquée pour ces rôles) et `depot_id` est **toujours** envoyé. Empêche de
+créer/éditer un de ces comptes sans dépôt. ⚠️ Garde-fou **backend** symétrique
+(`accounts/serializers.py` — `DEPOT_BOUND_ROLES`, à déployer). `flutter analyze` = 0 issue.
+
+> Distinction rappelée : **caisse physique** (coffre du dépôt, créée par l'admin) ≠ **session de
+> caisse** (« section » : ouverture de poste du caissier SUR cette caisse). On ouvre une *session*
+> sur une *caisse physique* ; la session appartient au caissier rattaché au dépôt.
+
+### Scan QR mission — lectures partielles + champ code_barre produit (20/06/2026)
+
+(1) **Fix scan QR** (`qr_scan_screen.dart`) : le scanner déclenchait l'appel API dès qu'il captait
+n'importe quel code (lecture partielle / autofocus instable) → valeur malformée → faux « QR invalide ou
+mission introuvable ». Corrigé : `MobileScannerController(detectionSpeed: noDuplicates, detectionTimeoutMs: 250,
+formats: [qrCode])` + **validation regex UUID** de `rawValue` avant tout appel réseau (les lectures
+non-UUID sont ignorées silencieusement, on continue de scanner). Message d'erreur reformulé (la cause
+résiduelle est métier : mission non « Planifiée » ou non assignée au chauffeur connecté — pas un défaut de scan).
+(2) **Champ `code_barre` produit** : ajouté à `ProductEntity`/`ProductModel` (`code_barre`) + champ de saisie
+optionnel dans `_CreateProductSheet` (`products_list_screen.dart`, envoie `code_barre` au POST). Permet au
+`BarcodeScanScreen` (recherche `?search=`) de retrouver un produit par son EAN/UPC. ⚠️ nécessite la migration
+backend `produits/0004` déployée.
+
+### Afficher le QR mission sur mobile (20/06/2026)
+
+Le mobile savait **scanner** un QR (`scanQr`) mais ne pouvait pas **afficher** celui d'une mission (l'URL `missionQr(id)` existait dans `api_endpoints.dart` mais n'était branchée nulle part, et aucun bouton n'existait). Ajout chaîne Clean Arch complète : `getMissionQr(id)` dans datasource (lit `image_base64` de `GET /missions/{id}/qr/`) → repo interface + impl → `missionQrProvider` (family). Dans `mission_detail_screen.dart` : bouton **« Afficher le QR de la mission »** (`_ShowQrButton`) + modale `_QrDialog` (`Image.memory(base64Decode(...))`, texte « Le chauffeur scanne ce code pour démarrer le chargement »). **Gating** : admin / superviseur / gestionnaire_stock uniquement (pas le chauffeur, qui scanne — il ne s'auto-scanne pas) **et** mission `planifiee` (seul état scannable côté backend). `flutter analyze lib/features/logistics` = 0 issue.
+
+**MAJ (20/06)** : ajout d'un bouton **« Enregistrer »** dans `_QrDialog` (le web avait « Télécharger », le mobile n'avait que « Fermer »). Décode le base64 → écrit `QR-{numero}.png` dans le dossier temporaire → `OpenFilex.open()` (même pattern que `PdfService._saveAndOpen`) → ouvre le visionneur système d'où on imprime / partage / enregistre dans la galerie. Visible uniquement quand l'image QR est chargée (`hasQr`).
 
 ### 🔲 Fonctionnalités différées (hors scope deadline)
 
@@ -171,6 +420,43 @@ POST /auth/2fa/disable/          body: {password}
 | `transfer_screen.dart` | Pas de FAB pour créer un transfert (admin/gestionnaire_stock peuvent créer) | FAB + `_CreateTransfertSheet` avec lignes dynamiques (produit + quantité) |
 | `CLAUDE.md` §3.9 | "responsable logistique" — rôle inexistant dans le système | Corrigé en "gestionnaire_stock" |
 | Nouveau : `ajustements_screen.dart` | Écran manquant — workflow ajustement (demander → approuver/refuser) non implémenté | Créé : liste paginée, filtres, FAB demande (gestionnaire_stock/admin), boutons approuver/refuser (admin/superviseur) |
+
+### Design mobile-natif (20/06/2026) — Audit débordements & cibles tactiles
+
+> Lot « pages mal foutues » : tuiles avec débordement `RenderFlex`, boutons d'action trop petits (< 44px), textes sans ellipsis. Palette `AppColors` conservée.
+
+| Fichier | Correction |
+| ------- | ---------- |
+| `ajustements_screen.dart` | **(page signalée)** Tuile refondue : la méta « Par … • date » passe sur **sa propre ligne** (`maxLines:1` + ellipsis, fin du débordement) ; boutons **Approuver/Refuser** sortis de la ligne méta → ligne dédiée, **pleine largeur (`Expanded`), hauteur 44px**, icône + couleur (`_ActionButton` réécrit : `icon`/`filled`, `Material`+`InkWell`). Approuver = vert plein, Refuser = contour rouge. |
+| `zones_screen.dart` | **(page signalée)** Coordonnées GPS de la tuile enveloppées dans `Flexible` + `maxLines:1`/ellipsis (anti-débordement à côté du nombre de dépôts). |
+| `mission_detail_screen.dart` | Lignes marchandises : nom produit `maxLines:1`+ellipsis, `SizedBox` avant la quantité. |
+| `transfer_screen.dart` | Bouton supprimer ligne : `BoxConstraints(minWidth:40, minHeight:40)` (cible tactile). |
+| `missions_screen.dart` | Hint « Chargement… » du dropdown en `Flexible`+ellipsis. |
+| `cash_session_screen.dart` | Montants KPI (`_SessionKpi`, `_MiniKpi`) : ajout `maxLines:1` (l'ellipsis existante était inopérante sans). |
+| `caisses_screen.dart` | Nom + sous-titre de caisse (`_SoldeCard`) : `maxLines:1`+ellipsis. |
+| `new_sale_screen.dart` | Ligne d'article : nom produit en ellipsis ; steppers −/+ agrandis **28→36px** (radius 6→8, icône 16→18). |
+
+**Faux positifs de l'audit écartés** (vérifiés, non modifiés) : `cash_session` (pas de boutons +/-, badge non cliquable), `caisses` (« Fermer » = `TextButton` déjà ≥ 48px), `inventaires_screen` (paragraphe d'aide multi-ligne dans `Expanded` → s'enroule, tronquer aurait masqué l'explication), `new_sale` (label de chip de paiement court et statique). `flutter analyze` sur les 8 fichiers = **No issues found**.
+
+### Corrections (18/06/2026) — Session 3 (audit croisé CDC + YAML + backend + skill)
+
+| Fichier | Correction |
+| ------- | ---------- |
+| `api_endpoints.dart` | URL `/mouvements-dette-fournisseur/` → `/mouvements-dette/` (nom réel backend) |
+| `api_endpoints.dart` | Ajout `configurationCaisses = '/configuration-caisses/'` |
+| `app_routes.dart` | Ajout `financeConfig = '/finance/configuration'` |
+| `app_router.dart` | Route `GoRoute(path: 'configuration', builder: CaisseConfigScreen)` sous `/finance` |
+| `app_drawer.dart` (admin) | Ajout "Config. caisses" → `AppRoutes.financeConfig` après "Gestion des caisses" |
+| `app_drawer.dart` (superviseur) | Suppression "Commandes fournisseurs" (périmètre gestionnaire_stock, pas superviseur) |
+| `sales_list_screen.dart` | `canAnnuler` + `canPayer` : suppression `superadmin` (ne doit pas toucher aux ventes d'une entreprise) |
+| `role_simulation_provider.dart` | Fail-safe role : `'caissier'` → `'commercial'` (principe moindre privilège) |
+| `logistics_sub_screens.dart` | `carburant canCreate` : `['chauffeur', 'maintenancier', 'admin']` (suppression gestionnaire_stock et superviseur) |
+| `products_list_screen.dart` | Import `api_client.dart` inutilisé supprimé |
+| `ajustements_screen.dart` | `value:` → `initialValue:` dans `DropdownButtonFormField` |
+| `transfer_screen.dart` | `value:` → `initialValue:` dans `DropdownButtonFormField` |
+| `missions_screen.dart` | `value:` → `initialValue:` dans `DropdownButtonFormField` |
+| `commandes_fournisseurs_screen.dart` | Accolades manquantes dans `if (mounted) setState(...)` |
+| `flutter analyze` | **0 warnings** après toutes corrections (exit code 0 confirmé) |
 
 ### Bugs corrigés (18/06/2026) — Audit YAML systématique (session 2)
 
@@ -384,6 +670,7 @@ Routes définies dans `core/router/app_routes.dart` et `core/router/app_router.d
 | `/sales/clients` | Gestion clients | Oui |
 | `/finance` | Caisses (sessions) | Oui |
 | `/finance/transactions` | Transactions | Oui |
+| `/finance/configuration` | Config durées de période caisses (admin R/W, autres lecture seule) | Oui |
 | `/logistics` | Liste missions | Oui |
 | `/logistics/:id` | Détail mission | Oui |
 | `/logistics/qr-scan` | Scanner QR mission | Oui |

@@ -1,14 +1,28 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
+import 'package:djoulagest_mobile/core/errors/app_exception.dart';
 import 'package:djoulagest_mobile/core/router/app_routes.dart';
 import 'package:djoulagest_mobile/core/utils/formatters.dart';
 import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/features/suppliers/domain/entities/supplier_entity.dart';
 import 'package:djoulagest_mobile/features/suppliers/presentation/providers/suppliers_provider.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
+
+String _apiError(dynamic e) {
+  if (e is DioException && e.error is AppException) {
+    final ex = e.error as AppException;
+    if (ex is ValidationException && ex.fieldErrors.isNotEmpty) {
+      final entry = ex.fieldErrors.entries.first;
+      return '${entry.key} : ${entry.value.first}';
+    }
+    return ex.message;
+  }
+  return e.toString();
+}
 
 class SuppliersScreen extends ConsumerStatefulWidget {
   const SuppliersScreen({super.key});
@@ -379,7 +393,7 @@ class _CreateSupplierSheetState extends ConsumerState<_CreateSupplierSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur : $e'),
+              content: Text(_apiError(e)),
               backgroundColor: AppColors.danger),
         );
       }

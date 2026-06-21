@@ -20,6 +20,12 @@ abstract class HrRepository {
 
   Future<PresenceEntity> createPresence(Map<String, dynamic> body);
 
+  Future<PresenceEntity> pointerPresence(Map<String, dynamic> body);
+
+  Future<PresenceTodayStatus> getPresenceAujourdhui();
+
+  Future<PresenceRecap> getPresenceRecap({String? date});
+
   Future<({int count, List<CongeEntity> conges})> getConges({
     int page = 1,
     int pageSize = 25,
@@ -31,5 +37,5 @@ abstract class HrRepository {
 
   Future<CongeEntity> approuverConge(int id);
 
-  Future<CongeEntity> refuserConge(int id);
+  Future<CongeEntity> refuserConge(int id, {String? motif});
 }

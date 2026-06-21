@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
+import 'package:djoulagest_mobile/core/router/app_routes.dart';
 import 'package:djoulagest_mobile/core/utils/formatters.dart';
 import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/features/sales/domain/entities/sale_entity.dart';
@@ -24,10 +26,21 @@ class SalesListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final salesAsync = ref.watch(salesProvider);
     final currentFilter = salesAsync.valueOrNull?.filter ?? '';
+    const canSell = ['caissier', 'commercial', 'admin'];
+    final showNew = canSell.contains(ref.watch(effectiveRoleProvider));
 
     return AppScaffold(
       title: 'Commandes',
       showBottomNav: true,
+      floatingActionButton: showNew
+          ? FloatingActionButton.extended(
+              onPressed: () => context.go(AppRoutes.newSale),
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_shopping_cart_outlined),
+              label: const Text('Nouvelle vente'),
+            )
+          : null,
       body: Column(
         children: [
           // ─── Filtres ──────────────────────────────────────────────────────

@@ -1,11 +1,26 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
+import 'package:djoulagest_mobile/core/errors/app_exception.dart';
 import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/features/hr/domain/entities/attendance_entity.dart';
 import 'package:djoulagest_mobile/features/hr/presentation/providers/hr_provider.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
+
+String _apiError(dynamic e) {
+  if (e is DioException && e.error is AppException) {
+    final ex = e.error as AppException;
+    if (ex is ValidationException && ex.fieldErrors.isNotEmpty) {
+      final entry = ex.fieldErrors.entries.first;
+      return '${entry.key} : ${entry.value.first}';
+    }
+    return ex.message;
+  }
+  return e.toString();
+}
 
 class AttendanceScreen extends ConsumerStatefulWidget {
   const AttendanceScreen({super.key});
@@ -18,9 +33,6 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
 
-  static const _canCreatePresence = [
-    'admin', 'superviseur', 'gestionnaire_stock'
-  ];
   static const _canManageConge = ['admin', 'superviseur'];
 
   @override
@@ -42,29 +54,27 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
     return AppScaffold(
       title: 'Présences & Congés',
       showBottomNav: true,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          if (_tabs.index == 0 && _canCreatePresence.contains(role)) {
-            _showAddPresenceSheet();
-          } else if (_tabs.index == 1) {
-            _showAddCongeSheet();
-          } else if (_tabs.index == 0 && !_canCreatePresence.contains(role)) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Vous n\'avez pas les droits pour enregistrer une présence'),
-                backgroundColor: AppColors.danger,
-              ),
-            );
-          }
+      floatingActionButton: AnimatedBuilder(
+        animation: _tabs,
+        builder: (_, __) {
+          // Présence = self-service (carte de pointage géolocalisée) → aucun FAB.
+          // Seul l'onglet Congés a un bouton « Demander un congé ».
+          if (_tabs.index != 1) return const SizedBox.shrink();
+          return FloatingActionButton.extended(
+            onPressed: _showAddCongeSheet,
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Congé'),
+          );
         },
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add_rounded),
-        label: AnimatedBuilder(
-          animation: _tabs,
-          builder: (_, __) => Text(_tabs.index == 0 ? 'Présence' : 'Congé'),
-        ),
       ),
+      // ⚠️ On N'UTILISE PAS `TabBarView` : son `PageView`/viewport horizontal
+      // pouvait recevoir une largeur NON BORNÉE (infinie) lors de certaines passes
+      // de layout (transition de route / overlay) → les pages (Row avec Expanded,
+      // ListView…) plantaient avec « incoming width constraints are unbounded »
+      // → écran blanc + ANR. `IndexedStack` passe directement les contraintes
+      // bornées de la route à la page active, sans viewport horizontal.
       body: Column(
         children: [
           // ─── Tabs ───────────────────────────────────────────────────────
@@ -82,30 +92,18 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
             ),
           ),
           Expanded(
-            child: TabBarView(
-              controller: _tabs,
-              children: [
-                _PresencesTab(canCreate: _canCreatePresence.contains(role)),
-                _CongesTab(canManage: _canManageConge.contains(role)),
-              ],
+            child: AnimatedBuilder(
+              animation: _tabs,
+              builder: (_, __) => IndexedStack(
+                index: _tabs.index,
+                children: [
+                  _PresencesTab(canViewRecap: _canManageConge.contains(role)),
+                  _CongesTab(canManage: _canManageConge.contains(role)),
+                ],
+              ),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showAddPresenceSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.vertical(top: Radius.circular(AppSizes.radiusLg)),
-      ),
-      builder: (_) => _AddPresenceSheet(
-        onSaved: () => ref.read(presencesProvider.notifier).refresh(),
       ),
     );
   }
@@ -129,13 +127,37 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
 // ─── Tab Présences ────────────────────────────────────────────────────────────
 
 class _PresencesTab extends ConsumerWidget {
-  const _PresencesTab({required this.canCreate});
-  final bool canCreate;
+  const _PresencesTab({required this.canViewRecap});
+  final bool canViewRecap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final presencesAsync = ref.watch(presencesProvider);
+    return Column(
+      children: [
+        const _PointageCard(),
+        // La liste complète des présences est réservée aux managers (RH_READ backend).
+        if (canViewRecap) ...[
+          const _RecapBanner(),
+          Expanded(child: _buildList(context, ref, ref.watch(presencesProvider))),
+        ] else
+          const Expanded(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(AppSizes.xl),
+                child: Text(
+                  'Pointez votre présence ci-dessus.\n'
+                  'Vos demandes de congé sont dans l\'onglet Congés.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.gray500, fontSize: AppSizes.fontSm),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 
+  Widget _buildList(BuildContext context, WidgetRef ref, AsyncValue presencesAsync) {
     return presencesAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(
@@ -197,6 +219,271 @@ class _PresencesTab extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// ─── Récap du jour : présents / absents (admin & superviseur) ──────────────────
+
+class _RecapBanner extends ConsumerStatefulWidget {
+  const _RecapBanner();
+
+  @override
+  ConsumerState<_RecapBanner> createState() => _RecapBannerState();
+}
+
+class _RecapBannerState extends ConsumerState<_RecapBanner> {
+  bool _showAbsents = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final recap = ref.watch(presenceRecapProvider).valueOrNull;
+    if (recap == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+          AppSizes.paddingPage, 0, AppSizes.paddingPage, AppSizes.xs),
+      padding: const EdgeInsets.all(AppSizes.md),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+        border: Border.all(color: AppColors.gray100),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _stat(recap.nbPresents.toString(), 'Présents', AppColors.secondary),
+              _divider(),
+              _stat(recap.nbAbsents.toString(), 'Absents', AppColors.danger),
+              _divider(),
+              _stat(recap.effectif.toString(), 'Effectif', AppColors.gray700),
+              const Spacer(),
+              if (recap.nbAbsents > 0)
+                TextButton(
+                  onPressed: () => setState(() => _showAbsents = !_showAbsents),
+                  child: Text(_showAbsents ? 'Masquer' : 'Absents'),
+                ),
+            ],
+          ),
+          if (_showAbsents && recap.absents.isNotEmpty) ...[
+            const Divider(height: AppSizes.lg),
+            Wrap(
+              spacing: AppSizes.xs,
+              runSpacing: AppSizes.xs,
+              children: recap.absents
+                  .map((a) => Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: AppSizes.sm, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(AppSizes.radiusFull),
+                          border: Border.all(
+                              color: AppColors.danger.withValues(alpha: 0.2)),
+                        ),
+                        child: Text(
+                          a.depotNom != null
+                              ? '${a.employeNom} · ${a.depotNom}'
+                              : a.employeNom,
+                          style: const TextStyle(
+                              fontSize: AppSizes.fontXs,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.gray700),
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _stat(String value, String label, Color color) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(value,
+              style: TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+          Text(label,
+              style: const TextStyle(
+                  fontSize: AppSizes.fontXs, color: AppColors.gray500)),
+        ],
+      );
+
+  Widget _divider() => Container(
+        width: 1,
+        height: 28,
+        margin: const EdgeInsets.symmetric(horizontal: AppSizes.md),
+        color: AppColors.gray200,
+      );
+}
+
+// ─── Carte self-service : pointer ma présence du jour ──────────────────────────
+
+class _PointageCard extends ConsumerStatefulWidget {
+  const _PointageCard();
+
+  @override
+  ConsumerState<_PointageCard> createState() => _PointageCardState();
+}
+
+class _PointageCardState extends ConsumerState<_PointageCard> {
+  bool _pointing = false;
+
+  Future<void> _pointer() async {
+    setState(() => _pointing = true);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw 'Activez la localisation de votre téléphone pour pointer.';
+      }
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        throw 'Autorisez la géolocalisation pour pointer votre présence.';
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final presence = await ref
+          .read(presencesProvider.notifier)
+          .pointer(pos.latitude, pos.longitude);
+      if (!mounted) return;
+      final ok = presence.dansPerimetre != false;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(ok
+            ? 'Présence enregistrée. Bonne journée !'
+            : 'Pointage enregistré, mais hors de votre lieu de travail.'),
+        backgroundColor: ok ? AppColors.secondary : AppColors.accent,
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e is DioException
+          ? (e.error is AppException
+              ? (e.error as AppException).message
+              : 'Erreur lors du pointage.')
+          : e.toString();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(msg),
+        backgroundColor: AppColors.danger,
+      ));
+    } finally {
+      if (mounted) setState(() => _pointing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final statusAsync = ref.watch(myPresenceProvider);
+    final status = statusAsync.valueOrNull;
+
+    // La carte de pointage est affichée à TOUT membre de l'entreprise : le backend
+    // crée automatiquement la fiche employé au 1ᵉʳ pointage (modèle « employés =
+    // utilisateurs »). On ne masque donc plus la carte selon `aFicheEmploye` ;
+    // seul `dejaPointe` bascule le bouton vers l'état « Présence enregistrée ».
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+          AppSizes.paddingPage, AppSizes.md, AppSizes.paddingPage, AppSizes.xs),
+      padding: const EdgeInsets.all(AppSizes.md),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppColors.primary, AppColors.primaryLight],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+      ),
+      child: status != null && status.dejaPointe
+          ? _buildPointe(status.presence)
+          : _buildBouton(),
+    );
+  }
+
+  Widget _buildBouton() {
+    return Row(
+      children: [
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Pointer ma présence',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15)),
+              SizedBox(height: 2),
+              Text(
+                'Cochez votre présence depuis votre lieu de travail.',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: AppSizes.sm),
+        ElevatedButton.icon(
+          onPressed: _pointing ? null : _pointer,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: AppColors.primary,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.radiusMd)),
+          ),
+          icon: _pointing
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: AppColors.primary),
+                )
+              : const Icon(Icons.check_circle_rounded, size: 18),
+          label: Text(_pointing ? 'Localisation…' : 'Présent'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPointe(PresenceEntity? p) {
+    final horsZone = p?.dansPerimetre == false;
+    return Row(
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Colors.white24,
+            borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+          ),
+          child: const Icon(Icons.check_rounded, color: Colors.white),
+        ),
+        const SizedBox(width: AppSizes.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Présence enregistrée',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15)),
+              const SizedBox(height: 2),
+              Text(
+                [
+                  if (p?.heureArrivee != null) 'Pointé à ${p!.heureArrivee}',
+                  if (horsZone)
+                    'hors de votre site'
+                  else if (p?.distanceM != null)
+                    'à ${p!.distanceM} m de votre site',
+                  'Rendez-vous demain.',
+                ].join(' · '),
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -289,6 +576,34 @@ class _PresenceTile extends StatelessWidget {
                     style: const TextStyle(
                         fontSize: AppSizes.fontXs,
                         color: AppColors.gray400),
+                  ),
+                ),
+              if (presence.dansPerimetre != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        presence.dansPerimetre!
+                            ? Icons.place_rounded
+                            : Icons.wrong_location_rounded,
+                        size: 12,
+                        color: presence.dansPerimetre!
+                            ? AppColors.secondary
+                            : AppColors.accent,
+                      ),
+                      const SizedBox(width: 2),
+                      Text(
+                        presence.dansPerimetre! ? 'Sur site' : 'Hors site',
+                        style: TextStyle(
+                            fontSize: AppSizes.fontXs,
+                            fontWeight: FontWeight.w600,
+                            color: presence.dansPerimetre!
+                                ? AppColors.secondary
+                                : AppColors.accent),
+                      ),
+                    ],
                   ),
                 ),
             ],
@@ -452,6 +767,45 @@ class _CongesTabState extends ConsumerState<_CongesTab> {
   }
 }
 
+Future<void> _showRefuseDialog(BuildContext context, WidgetRef ref, int congeId) async {
+  final ctrl = TextEditingController();
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Refuser la demande'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("L'employé sera notifié du refus et de son motif.",
+              style: TextStyle(fontSize: AppSizes.fontSm, color: AppColors.gray500)),
+          const SizedBox(height: AppSizes.sm),
+          TextField(
+            controller: ctrl,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'Motif du refus (recommandé)…',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+          child: const Text('Refuser'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed == true) {
+    await ref.read(congesProvider.notifier).refuser(congeId, motif: ctrl.text.trim());
+  }
+}
+
 class _CongeTile extends ConsumerWidget {
   const _CongeTile({required this.conge, required this.canManage});
   final CongeEntity conge;
@@ -539,6 +893,17 @@ class _CongeTile extends ConsumerWidget {
                     fontStyle: FontStyle.italic),
               ),
             ),
+          if (conge.isRefuse &&
+              conge.motifTraitement != null &&
+              conge.motifTraitement!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSizes.xs),
+              child: Text(
+                'Motif du refus : ${conge.motifTraitement!}',
+                style: const TextStyle(
+                    fontSize: AppSizes.fontXs, color: AppColors.danger),
+              ),
+            ),
 
           // Boutons approuver/refuser pour les gestionnaires
           if (canManage && conge.isEnAttente) ...[
@@ -547,9 +912,7 @@ class _CongeTile extends ConsumerWidget {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () => ref
-                        .read(congesProvider.notifier)
-                        .refuser(conge.id),
+                    onPressed: () => _showRefuseDialog(context, ref, conge.id),
                     icon: const Icon(Icons.close_rounded, size: 14),
                     label: const Text('Refuser'),
                     style: OutlinedButton.styleFrom(
@@ -591,235 +954,6 @@ class _CongeTile extends ConsumerWidget {
   }
 }
 
-// ─── Formulaire présence ─────────────────────────────────────────────────────
-
-class _AddPresenceSheet extends ConsumerStatefulWidget {
-  const _AddPresenceSheet({required this.onSaved});
-  final VoidCallback onSaved;
-
-  @override
-  ConsumerState<_AddPresenceSheet> createState() => _AddPresenceSheetState();
-}
-
-class _AddPresenceSheetState extends ConsumerState<_AddPresenceSheet> {
-  final _formKey = GlobalKey<FormState>();
-  final _employeCtrl = TextEditingController();
-  final _dateCtrl = TextEditingController();
-  final _obsCtrl = TextEditingController();
-  String _typePresence = 'present';
-  bool _isSaving = false;
-
-  static const _types = [
-    ('Présent', 'present'),
-    ('Absent', 'absent'),
-    ('Retard', 'retard'),
-    ('Mission', 'mission'),
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    final now = DateTime.now();
-    _dateCtrl.text =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-  }
-
-  @override
-  void dispose() {
-    _employeCtrl.dispose();
-    _dateCtrl.dispose();
-    _obsCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _isSaving = true);
-    try {
-      await ref.read(presencesProvider.notifier).create({
-        'employe': int.parse(_employeCtrl.text.trim()),
-        'date': _dateCtrl.text,
-        'type_presence': _typePresence,
-        if (_obsCtrl.text.isNotEmpty) 'observations': _obsCtrl.text.trim(),
-      });
-      if (mounted) {
-        Navigator.of(context).pop();
-        widget.onSaved();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Présence enregistrée'),
-            backgroundColor: AppColors.secondary,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Erreur : $e'),
-              backgroundColor: AppColors.danger),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSizes.paddingPage),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  const Text(
-                    'Enregistrer une présence',
-                    style: TextStyle(
-                        fontSize: AppSizes.fontLg,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.gray900),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSizes.md),
-              TextFormField(
-                controller: _employeCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'ID Employé *',
-                  border: OutlineInputBorder(),
-                  helperText: 'Saisir l\'identifiant numérique de l\'employé',
-                ),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Requis';
-                  if (int.tryParse(v.trim()) == null) return 'Nombre entier';
-                  return null;
-                },
-              ),
-              const SizedBox(height: AppSizes.sm),
-              TextFormField(
-                controller: _dateCtrl,
-                readOnly: true,
-                decoration: InputDecoration(
-                  labelText: 'Date *',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.calendar_today_rounded),
-                    onPressed: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.now(),
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime.now(),
-                      );
-                      if (picked != null) {
-                        _dateCtrl.text =
-                            '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-                      }
-                    },
-                  ),
-                ),
-                validator: (v) =>
-                    (v == null || v.isEmpty) ? 'Requis' : null,
-              ),
-              const SizedBox(height: AppSizes.sm),
-              const Text(
-                'Type de présence',
-                style: TextStyle(
-                    fontSize: AppSizes.fontSm,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.gray700),
-              ),
-              const SizedBox(height: AppSizes.xs),
-              Wrap(
-                spacing: AppSizes.xs,
-                children: _types.map((t) {
-                  final (label, value) = t;
-                  final sel = _typePresence == value;
-                  return GestureDetector(
-                    onTap: () => setState(() => _typePresence = value),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: AppSizes.md, vertical: AppSizes.xs),
-                      decoration: BoxDecoration(
-                        color: sel
-                            ? AppColors.primary.withValues(alpha: 0.1)
-                            : AppColors.gray100,
-                        borderRadius:
-                            BorderRadius.circular(AppSizes.radiusFull),
-                        border: Border.all(
-                            color: sel
-                                ? AppColors.primary.withValues(alpha: 0.4)
-                                : AppColors.gray200),
-                      ),
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                            fontSize: AppSizes.fontXs,
-                            fontWeight: FontWeight.w600,
-                            color: sel
-                                ? AppColors.primary
-                                : AppColors.gray500),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: AppSizes.sm),
-              TextFormField(
-                controller: _obsCtrl,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Observations',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: AppSizes.lg),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _isSaving ? null : _save,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding:
-                        const EdgeInsets.symmetric(vertical: AppSizes.md),
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppSizes.radiusMd)),
-                  ),
-                  child: _isSaving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Text('Enregistrer'),
-                ),
-              ),
-              const SizedBox(height: AppSizes.md),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ─── Formulaire congé ─────────────────────────────────────────────────────────
 
 class _AddCongeSheet extends ConsumerStatefulWidget {
@@ -832,15 +966,17 @@ class _AddCongeSheet extends ConsumerStatefulWidget {
 
 class _AddCongeSheetState extends ConsumerState<_AddCongeSheet> {
   final _formKey = GlobalKey<FormState>();
-  final _employeCtrl = TextEditingController();
   final _motifCtrl = TextEditingController();
   final _debutCtrl = TextEditingController();
   final _finCtrl = TextEditingController();
-  String _typeConge = 'conge_annuel';
+  // ⚠️ Valeurs EXACTES des choix backend `Conge.TypeConge` (source de vérité) :
+  // annuel / maladie / maternite / sans_solde / autre. Envoyer 'conge_annuel'
+  // (ancienne valeur) provoquait un 400 « is not a valid choice ».
+  String _typeConge = 'annuel';
   bool _isSaving = false;
 
   static const _types = [
-    ('Congé annuel', 'conge_annuel'),
+    ('Congé annuel', 'annuel'),
     ('Maladie', 'maladie'),
     ('Maternité', 'maternite'),
     ('Sans solde', 'sans_solde'),
@@ -849,7 +985,6 @@ class _AddCongeSheetState extends ConsumerState<_AddCongeSheet> {
 
   @override
   void dispose() {
-    _employeCtrl.dispose();
     _motifCtrl.dispose();
     _debutCtrl.dispose();
     _finCtrl.dispose();
@@ -873,8 +1008,8 @@ class _AddCongeSheetState extends ConsumerState<_AddCongeSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
     try {
+      // Demande self-service : l'employé est déduit du compte connecté côté backend.
       await ref.read(congesProvider.notifier).create({
-        'employe': int.parse(_employeCtrl.text.trim()),
         'type_conge': _typeConge,
         'date_debut': _debutCtrl.text,
         'date_fin': _finCtrl.text,
@@ -885,7 +1020,7 @@ class _AddCongeSheetState extends ConsumerState<_AddCongeSheet> {
         widget.onSaved();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Demande de congé soumise'),
+            content: Text('Demande de congé envoyée'),
             backgroundColor: AppColors.secondary,
           ),
         );
@@ -894,7 +1029,7 @@ class _AddCongeSheetState extends ConsumerState<_AddCongeSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur : $e'),
+              content: Text(_apiError(e)),
               backgroundColor: AppColors.danger),
         );
       }
@@ -933,18 +1068,27 @@ class _AddCongeSheetState extends ConsumerState<_AddCongeSheet> {
                 ],
               ),
               const SizedBox(height: AppSizes.md),
-              TextFormField(
-                controller: _employeCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'ID Employé *',
-                  border: OutlineInputBorder(),
+              Container(
+                padding: const EdgeInsets.all(AppSizes.sm),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppSizes.radiusMd),
                 ),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Requis';
-                  if (int.tryParse(v.trim()) == null) return 'Nombre entier';
-                  return null;
-                },
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded,
+                        size: 18, color: AppColors.primary),
+                    SizedBox(width: AppSizes.xs),
+                    Expanded(
+                      child: Text(
+                        'Votre demande sera transmise à votre responsable pour validation. '
+                        'Vous serez notifié de la décision.',
+                        style: TextStyle(
+                            fontSize: AppSizes.fontXs, color: AppColors.gray700),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: AppSizes.sm),
               const Text(

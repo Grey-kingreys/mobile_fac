@@ -12,10 +12,10 @@ abstract class CashSessionModel {
       dateFermeture: json['ferme_le'] != null
           ? DateTime.tryParse(json['ferme_le'] as String)
           : null,
-      soldeOuverture: (json['solde_ouverture'] as num?) ?? 0,
-      soldeFermeture: json['solde_fermeture_theorique'] as num?,
-      soldeReel: json['solde_fermeture_reel'] as num?,
-      ecart: json['ecart'] as num?,
+      soldeOuverture: _num(json['solde_ouverture']),
+      soldeFermeture: _numN(json['solde_fermeture_theorique']),
+      soldeReel: _numN(json['solde_fermeture_reel']),
+      ecart: _numN(json['ecart']),
       motifEcart:
           json['motif_ecart'] as String? ?? json['motif'] as String?,
       caissierId: json['caissier'] as int? ??
@@ -30,9 +30,15 @@ abstract class CashSessionModel {
       nombreTransactions:
           json['nombre_transactions'] as int? ?? json['nb_transactions'] as int?,
       totalEntrees:
-          json['total_entrees'] as num? ?? json['montant_entrees'] as num?,
+          _numN(json['total_entrees'] ?? json['montant_entrees']),
       totalSorties:
-          json['total_sorties'] as num? ?? json['montant_sorties'] as num?,
+          _numN(json['total_sorties'] ?? json['montant_sorties']),
     );
   }
+
+  // DecimalField DRF → string → parsing robuste.
+  static num _num(dynamic v) =>
+      v is num ? v : (num.tryParse(v?.toString() ?? '') ?? 0);
+  static num? _numN(dynamic v) =>
+      v == null ? null : (v is num ? v : num.tryParse(v.toString()));
 }

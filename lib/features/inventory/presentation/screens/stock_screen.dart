@@ -6,6 +6,7 @@ import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
 import 'package:djoulagest_mobile/core/utils/formatters.dart';
 import 'package:djoulagest_mobile/features/inventory/domain/entities/stock_entity.dart';
 import 'package:djoulagest_mobile/features/inventory/presentation/providers/inventory_provider.dart';
+import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
 
 class StockScreen extends ConsumerStatefulWidget {
@@ -28,10 +29,21 @@ class _StockScreenState extends ConsumerState<StockScreen> {
   @override
   Widget build(BuildContext context) {
     final inventoryAsync = ref.watch(inventoryProvider);
+    const canEntree = ['admin', 'gestionnaire_stock'];
+    final showEntree = canEntree.contains(ref.watch(effectiveRoleProvider));
 
     return AppScaffold(
       title: 'Stocks',
       showBottomNav: true,
+      floatingActionButton: showEntree
+          ? FloatingActionButton.extended(
+              onPressed: () => context.go('/inventory/entree'),
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_box_outlined),
+              label: const Text('Entrée de stock'),
+            )
+          : null,
       additionalActions: [
         IconButton(
           icon: const Icon(Icons.compare_arrows_rounded),

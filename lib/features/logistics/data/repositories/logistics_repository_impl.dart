@@ -22,8 +22,11 @@ class LogisticsRepositoryImpl implements LogisticsRepository {
   Future<MissionEntity> createMission({
     required int vehiculeId,
     required int chauffeurId,
-    required int depotDepartId,
-    required int depotArriveeId,
+    int? depotDepartId,
+    int? depotArriveeId,
+    int? clientId,
+    int? fournisseurId,
+    String typeMission = 'transfert',
     String? dateDepartPrevue,
     String? notes,
   }) =>
@@ -32,6 +35,9 @@ class LogisticsRepositoryImpl implements LogisticsRepository {
         chauffeurId: chauffeurId,
         depotDepartId: depotDepartId,
         depotArriveeId: depotArriveeId,
+        clientId: clientId,
+        fournisseurId: fournisseurId,
+        typeMission: typeMission,
         dateDepartPrevue: dateDepartPrevue,
         notes: notes,
       );
@@ -39,6 +45,9 @@ class LogisticsRepositoryImpl implements LogisticsRepository {
   @override
   Future<void> updateStatus(int id, String action) =>
       _datasource.updateStatus(id, action);
+
+  @override
+  Future<String> getMissionQr(int id) => _datasource.getMissionQr(id);
 
   @override
   Future<int> scanQr(String qrCode) => _datasource.scanQr(qrCode);

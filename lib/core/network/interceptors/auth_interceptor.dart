@@ -13,6 +13,23 @@ class AuthInterceptor extends Interceptor {
 
   AuthInterceptor(this._storage, {this.onLogout});
 
+  // Endpoints du flux d'authentification : un 401/403 y signifie « mauvais
+  // identifiants / lien invalide », PAS une session expirée. On ne doit donc
+  // ni tenter un refresh, ni déclencher onLogout — laisser l'erreur remonter
+  // telle quelle pour que l'écran l'affiche.
+  static const _authFlowPaths = <String>[
+    ApiEndpoints.login,
+    ApiEndpoints.refreshToken,
+    ApiEndpoints.twoFaLoginVerify,
+    ApiEndpoints.twoFaResend,
+    ApiEndpoints.passwordReset,
+    ApiEndpoints.passwordResetConfirm,
+    ApiEndpoints.firstLogin,
+  ];
+
+  bool _isAuthFlowEndpoint(String path) =>
+      _authFlowPaths.any((p) => path.contains(p));
+
   @override
   Future<void> onRequest(
     RequestOptions options,
@@ -30,7 +47,8 @@ class AuthInterceptor extends Interceptor {
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
-    if (err.response?.statusCode == 401) {
+    if (err.response?.statusCode == 401 &&
+        !_isAuthFlowEndpoint(err.requestOptions.path)) {
       // Si un refresh est déjà en cours, attendre son résultat.
       if (_refreshCompleter != null) {
         final refreshed = await _refreshCompleter!.future;

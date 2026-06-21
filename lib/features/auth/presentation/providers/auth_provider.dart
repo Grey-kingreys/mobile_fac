@@ -54,8 +54,12 @@ class AuthNotifier extends AsyncNotifier<UserEntity?> {
     _forgotPassword = ForgotPasswordUseCase(repo);
 
     final storage = ref.read(secureStorageProvider);
-    final hasToken = await storage.hasValidToken();
-    if (!hasToken) return null;
+    // hasSession() couvre le cas access expiré + refresh encore valide :
+    // getCurrentUser() déclenchera un 401 → l'AuthInterceptor rafraîchit le
+    // token et rejoue la requête. Si le refresh échoue aussi, on tombe dans le
+    // catch et on nettoie → déconnexion propre.
+    final hasSession = await storage.hasSession();
+    if (!hasSession) return null;
 
     try {
       return await repo.getCurrentUser();

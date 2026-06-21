@@ -36,6 +36,18 @@ class HrRepositoryImpl implements HrRepository {
       _datasource.createPresence(body);
 
   @override
+  Future<PresenceEntity> pointerPresence(Map<String, dynamic> body) =>
+      _datasource.pointerPresence(body);
+
+  @override
+  Future<PresenceTodayStatus> getPresenceAujourdhui() =>
+      _datasource.getPresenceAujourdhui();
+
+  @override
+  Future<PresenceRecap> getPresenceRecap({String? date}) =>
+      _datasource.getPresenceRecap(date: date);
+
+  @override
   Future<({int count, List<CongeEntity> conges})> getConges({
     int page = 1,
     int pageSize = 25,
@@ -53,5 +65,6 @@ class HrRepositoryImpl implements HrRepository {
   Future<CongeEntity> approuverConge(int id) => _datasource.approuverConge(id);
 
   @override
-  Future<CongeEntity> refuserConge(int id) => _datasource.refuserConge(id);
+  Future<CongeEntity> refuserConge(int id, {String? motif}) =>
+      _datasource.refuserConge(id, motif: motif);
 }

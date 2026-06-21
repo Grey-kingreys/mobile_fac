@@ -358,7 +358,8 @@ class _CreateTransfertSheetState
                             if (_lignes.length > 1)
                               IconButton(
                                 padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
+                                constraints: const BoxConstraints(
+                                    minWidth: 40, minHeight: 40),
                                 icon: const Icon(Icons.close,
                                     size: 18, color: AppColors.gray400),
                                 onPressed: () {

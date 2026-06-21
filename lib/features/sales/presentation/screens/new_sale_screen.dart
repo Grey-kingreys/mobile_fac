@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
+import 'package:djoulagest_mobile/core/di/providers.dart';
+import 'package:djoulagest_mobile/core/network/api_endpoints.dart';
 import 'package:djoulagest_mobile/core/utils/formatters.dart';
 import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
+import 'package:djoulagest_mobile/features/finance/domain/entities/compte_mobile_money_entity.dart';
 import 'package:djoulagest_mobile/features/sales/domain/entities/client_entity.dart';
 import 'package:djoulagest_mobile/features/sales/presentation/providers/sales_provider.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
@@ -42,6 +45,10 @@ class NewSaleScreen extends ConsumerStatefulWidget {
 class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
   ClientEntity? _selectedClient;
   final List<_LigneVente> _lignes = [];
+  int? _depotId;
+  List<Map<String, dynamic>> _depots = [];
+  List<CompteMobileMoneyEntity> _mmAccounts = [];
+  int? _selectedCompteMmId;
   String _modePaiement = 'especes';
   final _remiseCtrl = TextEditingController(text: '0');
   final _montantPayeCtrl = TextEditingController();
@@ -50,6 +57,13 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
   bool _isLoading = false;
 
   static const _modesAvecReference = {'orange_money', 'mtn_money', 'virement'};
+  static const _modesMobileMoney = {'orange_money', 'mtn_money'};
+
+  bool get _isMobileMoney => _modesMobileMoney.contains(_modePaiement);
+
+  // Comptes filtrés sur l'opérateur du mode de paiement choisi.
+  List<CompteMobileMoneyEntity> get _filteredAccounts =>
+      _mmAccounts.where((a) => a.operateur == _modePaiement).toList();
 
   static const _modes = [
     ('Espèces', 'especes', Icons.payments_rounded),
@@ -57,6 +71,51 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
     ('MTN Money', 'mtn_money', Icons.smartphone_rounded),
     ('Virement', 'virement', Icons.account_balance_rounded),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _depotId = ref.read(effectiveUserProvider)?.depotId;
+    _loadDepots();
+    _loadMobileMoneyAccounts();
+  }
+
+  Future<void> _loadMobileMoneyAccounts() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final res = await api.get<Map<String, dynamic>>(
+        ApiEndpoints.comptesMobileMoney,
+        queryParameters: {'page_size': 100, 'is_active': true},
+      );
+      if (!mounted) return;
+      final results = (res.data?['results'] ?? []) as List;
+      setState(() {
+        _mmAccounts = results
+            .cast<Map<String, dynamic>>()
+            .map(CompteMobileMoneyEntity.fromJson)
+            .where((a) => a.isActive)
+            .toList();
+      });
+    } catch (_) {/* non bloquant (ex. commercial sans accès finance) */}
+  }
+
+  Future<void> _loadDepots() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final res = await api.get<Map<String, dynamic>>(
+        ApiEndpoints.depots,
+        queryParameters: {'page_size': 100, 'is_active': true},
+      );
+      if (!mounted) return;
+      setState(() {
+        _depots = List<Map<String, dynamic>>.from((res.data?['results'] ?? []) as List);
+        // Si l'utilisateur n'a pas de dépôt et qu'il n'y en a qu'un, on le présélectionne.
+        if (_depotId == null && _depots.length == 1) {
+          _depotId = _depots.first['id'] as int?;
+        }
+      });
+    } catch (_) {/* dropdown vide → l'utilisateur choisit */}
+  }
 
   @override
   void dispose() {
@@ -103,7 +162,8 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
       setState(() => _lignes.add(_LigneVente(
             produitId: produit['id'] as int,
             produitNom: produit['nom'] as String,
-            prixUnitaire: produit['prix_vente'] as num,
+            // prix_vente : DecimalField DRF → string → parsing robuste.
+            prixUnitaire: num.tryParse('${produit['prix_vente']}') ?? 0,
             quantite: 1,
             uniteSymbole: produit['unite_symbole'] as String?,
           )));
@@ -112,12 +172,11 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
   }
 
   Future<void> _valider() async {
-    final user = ref.read(effectiveUserProvider);
-    final depotId = user?.depotId;
+    final depotId = _depotId;
 
     if (depotId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Impossible de créer une vente : aucun dépôt associé'),
+        content: Text('Sélectionnez le dépôt source de la vente'),
         backgroundColor: AppColors.danger,
       ));
       return;
@@ -143,12 +202,28 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
       return;
     }
 
+    if (_isMobileMoney && _selectedCompteMmId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Sélectionnez le compte Mobile Money crédité pour ce paiement'),
+        backgroundColor: AppColors.danger,
+      ));
+      return;
+    }
+
+    // `mode_paiement` (Commande) = nature du règlement : comptant / partiel / credit
+    // (≠ `mode_paiement_initial` = canal d'encaissement : especes / orange_money / …).
+    // On le dérive du montant payé ; envoyer le canal ici provoquait un 400
+    // (« especes n'est pas un choix valide » pour Commande.ModePaiement).
+    final modeCommande = montantPaye <= 0
+        ? 'credit'
+        : (montantPaye < _total ? 'partiel' : 'comptant');
+
     setState(() => _isLoading = true);
     try {
       await ref.read(salesRepositoryProvider).createSale(
             depot: depotId,
             client: _selectedClient?.id,
-            modePaiement: _modePaiement,
+            modePaiement: modeCommande,
             modePaiementInitial: _modePaiement,
             lignes: _lignes
                 .map((l) => {
@@ -160,6 +235,7 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
             remise: _remise,
             montantPaye: montantPaye,
             referencePaiement: needsRef ? referenceVal : null,
+            compteMobileMoney: _isMobileMoney ? _selectedCompteMmId : null,
             notes: _notesCtrl.text.trim().isEmpty
                 ? null
                 : _notesCtrl.text.trim(),
@@ -201,6 +277,40 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // ─── Dépôt source (obligatoire) ──────────────────────
+                  const _SectionTitle(title: 'Dépôt source *'),
+                  const SizedBox(height: AppSizes.xs),
+                  DropdownButtonFormField<int>(
+                    initialValue: _depotId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: AppSizes.md, vertical: AppSizes.sm),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                        borderSide: const BorderSide(color: AppColors.gray200),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                        borderSide: const BorderSide(color: AppColors.gray200),
+                      ),
+                    ),
+                    hint: const Text('Choisir le dépôt…'),
+                    items: _depots
+                        .map((d) => DropdownMenuItem<int>(
+                              value: d['id'] as int?,
+                              child: Text(
+                                (d['name'] ?? d['code'] ?? 'Dépôt ${d['id']}')
+                                    .toString(),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setState(() => _depotId = v),
+                  ),
+                  const SizedBox(height: AppSizes.lg),
                   // ─── Client (optionnel) ──────────────────────────────
                   const _SectionTitle(title: 'Client (optionnel)'),
                   const SizedBox(height: AppSizes.xs),
@@ -312,6 +422,8 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
                                 children: [
                                   Text(
                                     ligne.produitNom,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       fontSize: AppSizes.fontSm,
                                       fontWeight: FontWeight.w600,
@@ -342,16 +454,16 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
                                         _total.toStringAsFixed(0);
                                   },
                                   child: Container(
-                                    width: 28,
-                                    height: 28,
+                                    width: 36,
+                                    height: 36,
                                     decoration: BoxDecoration(
                                       color: AppColors.gray100,
                                       borderRadius:
-                                          BorderRadius.circular(6),
+                                          BorderRadius.circular(8),
                                     ),
                                     child: const Icon(
                                         Icons.remove_rounded,
-                                        size: 16,
+                                        size: 18,
                                         color: AppColors.gray600),
                                   ),
                                 ),
@@ -374,16 +486,16 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
                                         _total.toStringAsFixed(0);
                                   },
                                   child: Container(
-                                    width: 28,
-                                    height: 28,
+                                    width: 36,
+                                    height: 36,
                                     decoration: BoxDecoration(
                                       color: AppColors.primary
                                           .withValues(alpha: 0.1),
                                       borderRadius:
-                                          BorderRadius.circular(6),
+                                          BorderRadius.circular(8),
                                     ),
                                     child: const Icon(Icons.add_rounded,
-                                        size: 16,
+                                        size: 18,
                                         color: AppColors.primary),
                                   ),
                                 ),
@@ -414,8 +526,10 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
                       final (label, value, icon) = m;
                       final selected = _modePaiement == value;
                       return GestureDetector(
-                        onTap: () =>
-                            setState(() => _modePaiement = value),
+                        onTap: () => setState(() {
+                          _modePaiement = value;
+                          _selectedCompteMmId = null; // reset à chaque changement d'opérateur
+                        }),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
                           padding: const EdgeInsets.symmetric(
@@ -459,6 +573,62 @@ class _NewSaleScreenState extends ConsumerState<NewSaleScreen> {
                       );
                     }).toList(),
                   ),
+                  // ─── Compte Mobile Money crédité (Orange Money / MTN) ─────────
+                  if (_isMobileMoney) ...[
+                    const SizedBox(height: AppSizes.sm),
+                    if (_filteredAccounts.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(AppSizes.sm + 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                          border: Border.all(
+                              color: AppColors.accent.withValues(alpha: 0.3)),
+                        ),
+                        child: Text(
+                          'Aucun compte ${_modePaiement == 'orange_money' ? 'Orange Money' : 'MTN Money'} '
+                          'enregistré. Ajoutez-en un dans Finance → Mobile Money.',
+                          style: const TextStyle(
+                              fontSize: AppSizes.fontXs, color: AppColors.gray700),
+                        ),
+                      )
+                    else
+                      DropdownButtonFormField<int>(
+                        initialValue: _selectedCompteMmId,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: 'Compte ${_modePaiement == 'orange_money' ? 'Orange Money' : 'MTN Money'} crédité *',
+                          labelStyle: const TextStyle(
+                              fontSize: AppSizes.fontXs, color: AppColors.gray500),
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: AppSizes.md, vertical: AppSizes.sm),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                              borderSide: const BorderSide(color: AppColors.gray200)),
+                          enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                              borderSide: const BorderSide(color: AppColors.gray200)),
+                          focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                              borderSide: const BorderSide(color: AppColors.primary)),
+                        ),
+                        hint: const Text('Choisir le compte…'),
+                        items: _filteredAccounts
+                            .map((a) => DropdownMenuItem<int>(
+                                  value: a.id,
+                                  child: Text(
+                                    '${a.numero} — ${a.nomTitulaire}'
+                                    '${a.depotNom != null ? ' (${a.depotNom})' : ''}',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ))
+                            .toList(),
+                        onChanged: (v) =>
+                            setState(() => _selectedCompteMmId = v),
+                      ),
+                  ],
                   // ─── Référence de transaction (Orange Money / MTN / Virement) ─
                   if (_modesAvecReference.contains(_modePaiement)) ...[
                     const SizedBox(height: AppSizes.sm),
@@ -851,7 +1021,7 @@ class _ProductPickerSheetState
                       final p = products[i];
                       final nom = p['nom'] as String? ?? '';
                       final ref2 = p['reference'] as String? ?? '';
-                      final prix = p['prix_vente'] as num? ?? 0;
+                      final prix = num.tryParse('${p['prix_vente']}') ?? 0;
                       return ListTile(
                         leading: Container(
                           width: 40,

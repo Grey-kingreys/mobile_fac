@@ -141,7 +141,7 @@ class _FirstLoginScreenState extends ConsumerState<FirstLoginScreen> {
                   const SizedBox(height: AppSizes.xs),
                   Text(
                     _done
-                        ? 'Votre compte est prêt. Connectez-vous avec votre email et votre nouveau mot de passe.'
+                        ? 'Votre compte est prêt. Connectez-vous, puis configurez votre entreprise dans Paramètres → Caisse de l\'entreprise.'
                         : 'Votre administrateur vous a envoyé un token d\'activation. Définissez votre mot de passe pour commencer.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(

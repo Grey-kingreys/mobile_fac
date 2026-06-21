@@ -27,6 +27,19 @@ class _DrawerSection {
 
 // ─── Sections par rôle ──────────────────────────────────────────────────────
 
+// Section « Compte » commune : Notifications + Paramètres (hub). Le profil, la
+// configuration et les journaux d'audit vivent désormais dans /settings.
+const _DrawerSection _compteSection = _DrawerSection(title: 'Compte', items: [
+  _DrawerItem(icon: Icons.notifications_outlined, label: 'Notifications', route: AppRoutes.notifications),
+  _DrawerItem(icon: Icons.settings_outlined, label: 'Paramètres', route: AppRoutes.settings),
+]);
+
+// Pointage de présence + demande de congé (self-service) — tout le personnel.
+// Route vers l'écran pointage/congés (AttendanceScreen), PAS la gestion des comptes (/users).
+const _DrawerSection _monEspaceSection = _DrawerSection(title: 'Mon espace', items: [
+  _DrawerItem(icon: Icons.event_available_outlined, label: 'Présences & Congés', route: AppRoutes.attendance),
+]);
+
 const Map<String, List<_DrawerSection>> _roleSections = {
   // Superadmin = opérateur SaaS. Il gère les entreprises clientes, pas leurs opérations internes.
   // NE PEUT PAS : zones, dépôts, utilisateurs opérationnels — périmètre de l'admin d'entreprise.
@@ -37,51 +50,43 @@ const Map<String, List<_DrawerSection>> _roleSections = {
     _DrawerSection(title: 'Plateforme SaaS', items: [
       _DrawerItem(icon: Icons.business_outlined, label: 'Entreprises', route: AppRoutes.admin),
     ]),
-    _DrawerSection(title: 'Compte', items: [
-      _DrawerItem(icon: Icons.notifications_outlined, label: 'Notifications', route: AppRoutes.notifications),
-      _DrawerItem(icon: Icons.person_outline, label: 'Mon profil', route: AppRoutes.profile),
-    ]),
+    _compteSection,
   ],
   'admin': [
     _DrawerSection(title: null, items: [
       _DrawerItem(icon: Icons.dashboard_outlined, label: 'Tableau de bord', route: AppRoutes.dashboard),
+      _DrawerItem(icon: Icons.bar_chart_rounded, label: 'Rapports & Analyses', route: AppRoutes.reports),
     ]),
     _DrawerSection(title: 'Opérations', items: [
       _DrawerItem(icon: Icons.inventory_2_outlined, label: 'Stocks', route: AppRoutes.inventory),
+      _DrawerItem(icon: Icons.add_box_outlined, label: 'Entrée de stock', route: AppRoutes.inventoryEntree),
       _DrawerItem(icon: Icons.swap_horiz, label: 'Transferts inter-dépôts', route: AppRoutes.inventoryTransfer),
       _DrawerItem(icon: Icons.tune_outlined, label: 'Ajustements stock', route: AppRoutes.inventoryAjustements),
       _DrawerItem(icon: Icons.assignment_outlined, label: 'Inventaires', route: AppRoutes.inventoryInventaires),
       _DrawerItem(icon: Icons.account_balance_wallet_outlined, label: 'Finance', route: AppRoutes.finance),
       _DrawerItem(icon: Icons.account_balance_outlined, label: 'Gestion des caisses', route: AppRoutes.financeCaisses),
-      _DrawerItem(icon: Icons.tune_rounded, label: 'Config. caisses', route: AppRoutes.financeConfig),
       _DrawerItem(icon: Icons.receipt_long_outlined, label: 'Dépenses', route: AppRoutes.financeDepenses),
       _DrawerItem(icon: Icons.phone_android_rounded, label: 'Mobile Money', route: AppRoutes.financeMobileMoney),
       _DrawerItem(icon: Icons.point_of_sale_outlined, label: 'Ventes', route: AppRoutes.sales),
       _DrawerItem(icon: Icons.local_shipping_outlined, label: 'Logistique', route: AppRoutes.logistics),
+      _DrawerItem(icon: Icons.directions_car_outlined, label: 'Véhicules', route: AppRoutes.vehicules),
       _DrawerItem(icon: Icons.build_outlined, label: 'Maintenances', route: AppRoutes.maintenances),
       _DrawerItem(icon: Icons.warning_amber_rounded, label: 'Pannes', route: AppRoutes.pannes),
       _DrawerItem(icon: Icons.local_gas_station_rounded, label: 'Carburant', route: AppRoutes.carburant),
       _DrawerItem(icon: Icons.folder_outlined, label: 'Documents véhicule', route: AppRoutes.documentsVehicule),
       _DrawerItem(icon: Icons.category_outlined, label: 'Produits', route: AppRoutes.products),
-      _DrawerItem(icon: Icons.label_outline, label: 'Catégories', route: AppRoutes.categories),
-      _DrawerItem(icon: Icons.straighten_outlined, label: 'Unités', route: AppRoutes.unites),
       _DrawerItem(icon: Icons.handshake_outlined, label: 'Fournisseurs', route: AppRoutes.suppliers),
     ]),
     _DrawerSection(title: 'Administration', items: [
       _DrawerItem(icon: Icons.people_outline, label: 'Ressources Humaines', route: AppRoutes.hr),
+      _DrawerItem(icon: Icons.event_available_outlined, label: 'Présences & Congés', route: AppRoutes.attendance),
     ]),
-    _DrawerSection(title: 'Configuration', items: [
-      _DrawerItem(icon: Icons.location_on_outlined, label: 'Zones', route: AppRoutes.zones),
-      _DrawerItem(icon: Icons.warehouse_outlined, label: 'Dépôts', route: AppRoutes.depots),
-    ]),
-    _DrawerSection(title: 'Compte', items: [
-      _DrawerItem(icon: Icons.notifications_outlined, label: 'Notifications', route: AppRoutes.notifications),
-      _DrawerItem(icon: Icons.person_outline, label: 'Mon profil', route: AppRoutes.profile),
-    ]),
+    _compteSection,
   ],
   'superviseur': [
     _DrawerSection(title: null, items: [
       _DrawerItem(icon: Icons.dashboard_outlined, label: 'Tableau de bord', route: AppRoutes.dashboard),
+      _DrawerItem(icon: Icons.bar_chart_rounded, label: 'Rapports & Analyses', route: AppRoutes.reports),
     ]),
     _DrawerSection(title: 'Opérations', items: [
       _DrawerItem(icon: Icons.inventory_2_outlined, label: 'Stocks', route: AppRoutes.inventory),
@@ -99,23 +104,16 @@ const Map<String, List<_DrawerSection>> _roleSections = {
       _DrawerItem(icon: Icons.folder_outlined, label: 'Documents véhicule', route: AppRoutes.documentsVehicule),
       _DrawerItem(icon: Icons.handshake_outlined, label: 'Fournisseurs', route: AppRoutes.suppliers),
       _DrawerItem(icon: Icons.people_outline, label: 'Ressources Humaines', route: AppRoutes.hr),
+      _DrawerItem(icon: Icons.event_available_outlined, label: 'Présences & Congés', route: AppRoutes.attendance),
     ]),
-    _DrawerSection(title: 'Configuration', items: [
-      _DrawerItem(icon: Icons.location_on_outlined, label: 'Zones', route: AppRoutes.zones),
-      _DrawerItem(icon: Icons.warehouse_outlined, label: 'Dépôts', route: AppRoutes.depots),
-    ]),
-    _DrawerSection(title: 'Compte', items: [
-      _DrawerItem(icon: Icons.notifications_outlined, label: 'Notifications', route: AppRoutes.notifications),
-      _DrawerItem(icon: Icons.person_outline, label: 'Mon profil', route: AppRoutes.profile),
-    ]),
+    _compteSection,
   ],
   'gestionnaire_stock': [
     _DrawerSection(title: 'Stock', items: [
       _DrawerItem(icon: Icons.dashboard_outlined, label: 'Tableau de bord', route: AppRoutes.dashboard),
       _DrawerItem(icon: Icons.inventory_2_outlined, label: 'Stocks', route: AppRoutes.inventory),
+      _DrawerItem(icon: Icons.add_box_outlined, label: 'Entrée de stock', route: AppRoutes.inventoryEntree),
       _DrawerItem(icon: Icons.category_outlined, label: 'Produits', route: AppRoutes.products),
-      _DrawerItem(icon: Icons.label_outline, label: 'Catégories', route: AppRoutes.categories),
-      _DrawerItem(icon: Icons.straighten_outlined, label: 'Unités', route: AppRoutes.unites),
       _DrawerItem(icon: Icons.handshake_outlined, label: 'Fournisseurs', route: AppRoutes.suppliers),
       _DrawerItem(icon: Icons.add_shopping_cart_rounded, label: 'Commandes fournisseurs', route: AppRoutes.commandesFournisseurs),
       _DrawerItem(icon: Icons.swap_horiz, label: 'Transferts inter-dépôts', route: AppRoutes.inventoryTransfer),
@@ -126,10 +124,8 @@ const Map<String, List<_DrawerSection>> _roleSections = {
     _DrawerSection(title: 'Logistique', items: [
       _DrawerItem(icon: Icons.local_shipping_outlined, label: 'Missions', route: AppRoutes.logistics),
     ]),
-    _DrawerSection(title: 'Compte', items: [
-      _DrawerItem(icon: Icons.notifications_outlined, label: 'Notifications', route: AppRoutes.notifications),
-      _DrawerItem(icon: Icons.person_outline, label: 'Mon profil', route: AppRoutes.profile),
-    ]),
+    _monEspaceSection,
+    _compteSection,
   ],
   'caissier': [
     _DrawerSection(title: 'Finance', items: [
@@ -139,10 +135,8 @@ const Map<String, List<_DrawerSection>> _roleSections = {
       _DrawerItem(icon: Icons.phone_android_rounded, label: 'Mobile Money', route: AppRoutes.financeMobileMoney),
       _DrawerItem(icon: Icons.point_of_sale_outlined, label: 'Ventes', route: AppRoutes.sales),
     ]),
-    _DrawerSection(title: 'Compte', items: [
-      _DrawerItem(icon: Icons.notifications_outlined, label: 'Notifications', route: AppRoutes.notifications),
-      _DrawerItem(icon: Icons.person_outline, label: 'Mon profil', route: AppRoutes.profile),
-    ]),
+    _monEspaceSection,
+    _compteSection,
   ],
   'chauffeur': [
     _DrawerSection(title: 'Logistique', items: [
@@ -151,23 +145,20 @@ const Map<String, List<_DrawerSection>> _roleSections = {
       _DrawerItem(icon: Icons.warning_amber_rounded, label: 'Pannes', route: AppRoutes.pannes),
       _DrawerItem(icon: Icons.local_gas_station_rounded, label: 'Carburant', route: AppRoutes.carburant),
     ]),
-    _DrawerSection(title: 'Compte', items: [
-      _DrawerItem(icon: Icons.notifications_outlined, label: 'Notifications', route: AppRoutes.notifications),
-      _DrawerItem(icon: Icons.person_outline, label: 'Mon profil', route: AppRoutes.profile),
-    ]),
+    _monEspaceSection,
+    _compteSection,
   ],
   'maintenancier': [
     _DrawerSection(title: 'Maintenance', items: [
       _DrawerItem(icon: Icons.dashboard_outlined, label: 'Tableau de bord', route: AppRoutes.dashboard),
-      _DrawerItem(icon: Icons.local_shipping_outlined, label: 'Flotte & Véhicules', route: AppRoutes.logistics),
+      _DrawerItem(icon: Icons.local_shipping_outlined, label: 'Véhicules', route: AppRoutes.vehicules),
+      _DrawerItem(icon: Icons.route_outlined, label: 'Missions', route: AppRoutes.logistics),
       _DrawerItem(icon: Icons.build_outlined, label: 'Maintenances', route: AppRoutes.maintenances),
       _DrawerItem(icon: Icons.warning_amber_rounded, label: 'Pannes', route: AppRoutes.pannes),
       _DrawerItem(icon: Icons.folder_outlined, label: 'Documents véhicule', route: AppRoutes.documentsVehicule),
     ]),
-    _DrawerSection(title: 'Compte', items: [
-      _DrawerItem(icon: Icons.notifications_outlined, label: 'Notifications', route: AppRoutes.notifications),
-      _DrawerItem(icon: Icons.person_outline, label: 'Mon profil', route: AppRoutes.profile),
-    ]),
+    _monEspaceSection,
+    _compteSection,
   ],
   'commercial': [
     _DrawerSection(title: 'Commerce', items: [
@@ -176,10 +167,8 @@ const Map<String, List<_DrawerSection>> _roleSections = {
       _DrawerItem(icon: Icons.people_outline, label: 'Clients', route: AppRoutes.clients),
       _DrawerItem(icon: Icons.description_outlined, label: 'Devis', route: AppRoutes.devis),
     ]),
-    _DrawerSection(title: 'Compte', items: [
-      _DrawerItem(icon: Icons.notifications_outlined, label: 'Notifications', route: AppRoutes.notifications),
-      _DrawerItem(icon: Icons.person_outline, label: 'Mon profil', route: AppRoutes.profile),
-    ]),
+    _monEspaceSection,
+    _compteSection,
   ],
 };
 
@@ -199,6 +188,22 @@ class AppDrawer extends ConsumerWidget {
     final roleColor = roleColors[role] ?? AppColors.primary;
     final roleLabel = roleLabels[role] ?? role;
 
+    // Un seul item actif : celui dont la route est le préfixe le plus long de
+    // l'emplacement courant (évite que /products et /products/categories
+    // s'allument simultanément).
+    String? activeRoute;
+    var bestLen = 0;
+    for (final section in sections) {
+      for (final item in section.items) {
+        final r = item.route;
+        if ((currentLocation == r || currentLocation.startsWith('$r/')) &&
+            r.length > bestLen) {
+          activeRoute = r;
+          bestLen = r.length;
+        }
+      }
+    }
+
     return Drawer(
       width: AppSizes.drawerWidth,
       child: Column(
@@ -215,7 +220,7 @@ class AppDrawer extends ConsumerWidget {
                   .map(
                     (section) => _SectionWidget(
                       section: section,
-                      currentLocation: currentLocation,
+                      activeRoute: activeRoute,
                       onItemTap: (route) {
                         Navigator.of(context).pop();
                         context.go(route);
@@ -392,17 +397,17 @@ class _Header extends StatelessWidget {
 class _SectionWidget extends StatelessWidget {
   const _SectionWidget({
     required this.section,
-    required this.currentLocation,
+    required this.activeRoute,
     required this.onItemTap,
   });
 
   final _DrawerSection section;
-  final String currentLocation;
+  final String? activeRoute;
   final void Function(String route) onItemTap;
 
   bool _isActive(String route) {
-    // Même logique que le bottom nav : préfixe le plus long.
-    return currentLocation == route || currentLocation.startsWith('$route/');
+    // L'item actif est déterminé en amont (préfixe le plus long), un seul gagne.
+    return route == activeRoute;
   }
 
   @override

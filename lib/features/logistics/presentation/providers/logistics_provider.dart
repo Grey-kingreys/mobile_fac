@@ -115,8 +115,11 @@ class MissionsNotifier extends AsyncNotifier<MissionsState> {
   Future<String?> createMission({
     required int vehiculeId,
     required int chauffeurId,
-    required int depotDepartId,
-    required int depotArriveeId,
+    int? depotDepartId,
+    int? depotArriveeId,
+    int? clientId,
+    int? fournisseurId,
+    String typeMission = 'transfert',
     String? dateDepartPrevue,
     String? notes,
   }) async {
@@ -126,6 +129,9 @@ class MissionsNotifier extends AsyncNotifier<MissionsState> {
             chauffeurId: chauffeurId,
             depotDepartId: depotDepartId,
             depotArriveeId: depotArriveeId,
+            clientId: clientId,
+            fournisseurId: fournisseurId,
+            typeMission: typeMission,
             dateDepartPrevue: dateDepartPrevue,
             notes: notes,
           );
@@ -146,6 +152,13 @@ final missionsProvider =
 final missionDetailProvider =
     FutureProvider.autoDispose.family<MissionEntity, int>((ref, id) async {
   return ref.read(logisticsRepositoryProvider).getMissionDetail(id);
+});
+
+// ─── QR de la mission (image base64 à afficher / faire scanner) ───────────────
+
+final missionQrProvider =
+    FutureProvider.autoDispose.family<String, int>((ref, id) async {
+  return ref.read(logisticsRepositoryProvider).getMissionQr(id);
 });
 
 // ─── Scan QR → retourne l'id de la mission ────────────────────────────────────

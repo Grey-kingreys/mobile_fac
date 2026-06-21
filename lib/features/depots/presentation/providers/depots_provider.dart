@@ -1,5 +1,7 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:djoulagest_mobile/core/di/providers.dart';
+import 'package:djoulagest_mobile/core/errors/app_exception.dart';
 import 'package:djoulagest_mobile/features/depots/data/datasources/depots_remote_datasource.dart';
 import 'package:djoulagest_mobile/features/depots/domain/entities/depot_entity.dart';
 
@@ -127,6 +129,8 @@ class DepotsNotifier extends AsyncNotifier<DepotsState> {
     required String code,
     required int zoneId,
     String? adresse,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       await ref.read(_depotsDatasourceProvider).createDepot(
@@ -134,6 +138,8 @@ class DepotsNotifier extends AsyncNotifier<DepotsState> {
             code: code,
             zoneId: zoneId,
             adresse: adresse,
+            latitude: latitude,
+            longitude: longitude,
           );
       await refresh();
       return null;
@@ -148,6 +154,8 @@ class DepotsNotifier extends AsyncNotifier<DepotsState> {
     required String code,
     required int zoneId,
     String? adresse,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       final updated = await ref.read(_depotsDatasourceProvider).updateDepot(
@@ -156,6 +164,8 @@ class DepotsNotifier extends AsyncNotifier<DepotsState> {
             code: code,
             zoneId: zoneId,
             adresse: adresse,
+            latitude: latitude,
+            longitude: longitude,
           );
       final current = state.valueOrNull;
       if (current != null) {
@@ -186,6 +196,15 @@ class DepotsNotifier extends AsyncNotifier<DepotsState> {
   }
 
   String _msg(Object e) {
+    // Surfacer le vrai message du backend (ex. « Ce code est déjà utilisé… »,
+    // « Cette zone n'appartient pas à votre entreprise ») au lieu du DioException brut.
+    if (e is DioException) {
+      final inner = e.error;
+      if (inner is ValidationException && inner.fieldErrors.isNotEmpty) {
+        return inner.fieldErrors.values.first.first;
+      }
+      if (inner is AppException) return inner.message;
+    }
     final s = e.toString();
     return s.startsWith('Exception: ') ? s.substring(11) : s;
   }

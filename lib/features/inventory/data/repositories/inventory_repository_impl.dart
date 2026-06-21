@@ -81,6 +81,8 @@ class InventoryRepositoryImpl implements InventoryRepository {
     required num quantite,
     String? referenceDoc,
     String? motif,
+    String? numeroLot,
+    String? dateExpiration,
   }) =>
       _datasource.stockEntree(
         depot: depot,
@@ -88,6 +90,8 @@ class InventoryRepositoryImpl implements InventoryRepository {
         quantite: quantite,
         referenceDoc: referenceDoc,
         motif: motif,
+        numeroLot: numeroLot,
+        dateExpiration: dateExpiration,
       );
 
   @override

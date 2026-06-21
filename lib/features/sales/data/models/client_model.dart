@@ -22,10 +22,14 @@ class ClientModel extends ClientEntity {
       prenom: j['prenom'] as String?,
       nomComplet: j['nom_complet'] as String? ?? '${j['prenom'] ?? ''} ${j['nom'] ?? ''}',
       telephone: j['telephone'] as String?,
-      pointsFidelite: j['points_fidelite'] as num? ?? 0,
-      soldeCredit: j['solde_credit'] as num? ?? 0,
+      // DRF renvoie les DecimalField en string → parsing robuste.
+      pointsFidelite: _num(j['points_fidelite']),
+      soldeCredit: _num(j['solde_credit']),
       isActive: j['is_active'] as bool? ?? true,
       createdAt: DateTime.tryParse(j['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
+
+  static num _num(dynamic v) =>
+      v is num ? v : (num.tryParse(v?.toString() ?? '') ?? 0);
 }

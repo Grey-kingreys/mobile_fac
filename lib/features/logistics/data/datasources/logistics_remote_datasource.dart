@@ -51,6 +51,14 @@ class LogisticsRemoteDatasource {
     await _api.post<void>(endpoint, data: {});
   }
 
+  /// Récupère l'image PNG (base64) du QR code de la mission, à afficher/imprimer.
+  /// Le backend renvoie `{ qr_code, image_base64 }` (uuid + png base64).
+  Future<String> getMissionQr(int id) async {
+    final resp = await _api.get<Map<String, dynamic>>(ApiEndpoints.missionQr(id));
+    final data = resp.data ?? {};
+    return data['image_base64'] as String? ?? '';
+  }
+
   /// Retourne l'id de la mission correspondant au QR code scanné.
   Future<int> scanQr(String qrCode) async {
     final resp = await _api.post<Map<String, dynamic>>(
@@ -77,9 +85,11 @@ class LogisticsRemoteDatasource {
   Future<MissionEntity> createMission({
     required int vehiculeId,
     required int chauffeurId,
-    required int depotDepartId,
-    required int depotArriveeId,
-    String typeMission = 'livraison',
+    int? depotDepartId,
+    int? depotArriveeId,
+    int? clientId,
+    int? fournisseurId,
+    String typeMission = 'transfert',
     String? dateDepartPrevue,
     String? notes,
   }) async {
@@ -88,9 +98,12 @@ class LogisticsRemoteDatasource {
       data: {
         'vehicule': vehiculeId,
         'chauffeur': chauffeurId,
-        'depot_depart': depotDepartId,
-        'depot_arrivee': depotArriveeId,
         'type_mission': typeMission,
+        // Champs conditionnels selon le type (validés côté backend).
+        if (depotDepartId != null) 'depot_depart': depotDepartId,
+        if (depotArriveeId != null) 'depot_arrivee': depotArriveeId,
+        if (clientId != null) 'client': clientId,
+        if (fournisseurId != null) 'fournisseur': fournisseurId,
         if (dateDepartPrevue != null) 'date_depart_prevue': dateDepartPrevue,
         if (notes != null && notes.isNotEmpty) 'notes': notes,
       },

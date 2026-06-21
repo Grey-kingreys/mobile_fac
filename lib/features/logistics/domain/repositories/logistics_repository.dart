@@ -12,13 +12,18 @@ abstract class LogisticsRepository {
   Future<MissionEntity> createMission({
     required int vehiculeId,
     required int chauffeurId,
-    required int depotDepartId,
-    required int depotArriveeId,
+    int? depotDepartId,
+    int? depotArriveeId,
+    int? clientId,
+    int? fournisseurId,
+    String typeMission,
     String? dateDepartPrevue,
     String? notes,
   });
 
   Future<void> updateStatus(int id, String action);
+
+  Future<String> getMissionQr(int id);
 
   Future<int> scanQr(String qrCode);
 

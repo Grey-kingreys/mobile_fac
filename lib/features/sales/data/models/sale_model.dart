@@ -27,13 +27,17 @@ class SaleModel extends SaleEntity {
       client: j['client'] as int?,
       clientNom: j['client_nom'] as String? ?? 'Anonyme',
       depot: j['depot'] as int?,
-      montantTtc: j['montant_ttc'] as num? ?? 0,
-      remise: j['remise'] as num? ?? 0,
-      montantPaye: j['montant_paye'] as num? ?? 0,
-      resteAPayer: j['reste_a_payer'] as num? ?? 0,
+      montantTtc: _num(j['montant_ttc']),
+      remise: _num(j['remise']),
+      montantPaye: _num(j['montant_paye']),
+      resteAPayer: _num(j['reste_a_payer']),
       modePaiement: j['mode_paiement'] as String?,
       nbLignes: j['nb_lignes'] as int?,
       createdAt: DateTime.tryParse(j['created_at'] as String? ?? '') ?? DateTime.now(),
     );
   }
+
+  // DRF renvoie les DecimalField en string → parsing robuste.
+  static num _num(dynamic v) =>
+      v is num ? v : (num.tryParse(v?.toString() ?? '') ?? 0);
 }

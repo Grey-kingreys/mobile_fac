@@ -50,6 +50,8 @@ abstract class InventoryRepository {
     required num quantite,
     String? referenceDoc,
     String? motif,
+    String? numeroLot,
+    String? dateExpiration,
   });
 
   Future<void> stockSortie({

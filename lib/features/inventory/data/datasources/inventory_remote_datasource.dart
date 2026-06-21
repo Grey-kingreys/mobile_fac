@@ -161,6 +161,8 @@ class InventoryRemoteDatasource {
     required num quantite,
     String? referenceDoc,
     String? motif,
+    String? numeroLot,
+    String? dateExpiration,
   }) async {
     final body = <String, dynamic>{
       'depot': depot,
@@ -171,6 +173,10 @@ class InventoryRemoteDatasource {
       body['reference_doc'] = referenceDoc;
     }
     if (motif != null && motif.isNotEmpty) body['motif'] = motif;
+    if (numeroLot != null && numeroLot.isNotEmpty) body['numero_lot'] = numeroLot;
+    if (dateExpiration != null && dateExpiration.isNotEmpty) {
+      body['date_expiration'] = dateExpiration;
+    }
 
     await _api.post<Map<String, dynamic>>(
       ApiEndpoints.stockEntree,

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
+import 'package:djoulagest_mobile/core/di/providers.dart';
+import 'package:djoulagest_mobile/core/network/api_endpoints.dart';
 import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/features/depots/presentation/providers/depots_provider.dart';
 import 'package:djoulagest_mobile/features/logistics/presentation/providers/logistics_provider.dart';
@@ -232,7 +234,44 @@ class _CreateMissionSheetState extends ConsumerState<_CreateMissionSheet> {
   int? _chauffeurId;
   int? _depotDepartId;
   int? _depotArriveeId;
+  int? _clientId;
+  int? _fournisseurId;
+  String _typeMission = 'transfert';
   bool _loading = false;
+
+  List<Map<String, dynamic>> _clients = [];
+  List<Map<String, dynamic>> _fournisseurs = [];
+
+  static const _typeOptions = [
+    ('transfert', 'Transfert inter-dépôt', 'Dépôt → Dépôt (marchandise interne)'),
+    ('livraison', 'Livraison client', 'Dépôt → Client'),
+    ('enlevement', 'Enlèvement fournisseur', 'Fournisseur → Dépôt'),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadClientsFournisseurs();
+  }
+
+  Future<void> _loadClientsFournisseurs() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final cRes = await api.get<Map<String, dynamic>>(
+        ApiEndpoints.clients,
+        queryParameters: {'page_size': 100, 'is_active': true},
+      );
+      final fRes = await api.get<Map<String, dynamic>>(
+        ApiEndpoints.fournisseurs,
+        queryParameters: {'page_size': 100, 'is_active': true},
+      );
+      if (!mounted) return;
+      setState(() {
+        _clients = List<Map<String, dynamic>>.from((cRes.data?['results'] ?? []) as List);
+        _fournisseurs = List<Map<String, dynamic>>.from((fRes.data?['results'] ?? []) as List);
+      });
+    } catch (_) {/* listes vides → dropdowns vides, non bloquant */}
+  }
 
   @override
   void dispose() {
@@ -284,6 +323,22 @@ class _CreateMissionSheetState extends ConsumerState<_CreateMissionSheet> {
               ),
               const SizedBox(height: AppSizes.lg),
 
+              // Type de mission
+              DropdownButtonFormField<String>(
+                initialValue: _typeMission,
+                isExpanded: true,
+                decoration: _inputDecoration('Type de mission *'),
+                items: _typeOptions
+                    .map((t) => DropdownMenuItem(
+                          value: t.$1,
+                          child: Text('${t.$2} — ${t.$3}',
+                              overflow: TextOverflow.ellipsis),
+                        ))
+                    .toList(),
+                onChanged: _loading ? null : (v) => setState(() => _typeMission = v ?? 'transfert'),
+              ),
+              const SizedBox(height: AppSizes.md),
+
               // Véhicule
               _buildDropdownField<int>(
                 label: 'Véhicule *',
@@ -329,45 +384,85 @@ class _CreateMissionSheetState extends ConsumerState<_CreateMissionSheet> {
               ),
               const SizedBox(height: AppSizes.md),
 
-              // Dépôt départ
-              _buildDropdownField<int>(
-                label: 'Dépôt de départ *',
-                selectedValue: _depotDepartId,
-                items: depotsAsync.when(
-                  data: (s) => s.depots
-                      .map((d) => DropdownMenuItem(
+              // ── Champs selon le type de mission ────────────────────────────
+              // Dépôt de départ / source : transfert + livraison
+              if (_typeMission == 'transfert' || _typeMission == 'livraison') ...[
+                _buildDropdownField<int>(
+                  label: _typeMission == 'livraison' ? 'Dépôt source *' : 'Dépôt de départ *',
+                  selectedValue: _depotDepartId,
+                  items: depotsAsync.when(
+                    data: (s) => s.depots
+                        .map((d) => DropdownMenuItem(
                             value: d.id,
-                            child: Text(d.nom, overflow: TextOverflow.ellipsis),
-                          ))
-                      .toList(),
-                  loading: () => [],
-                  error: (_, __) => [],
+                            child: Text(d.nom, overflow: TextOverflow.ellipsis)))
+                        .toList(),
+                    loading: () => [],
+                    error: (_, __) => [],
+                  ),
+                  isLoading: depotsAsync.isLoading,
+                  onChanged: (v) => setState(() => _depotDepartId = v),
+                  validator: (v) => v == null ? 'Sélectionner le dépôt' : null,
                 ),
-                isLoading: depotsAsync.isLoading,
-                onChanged: (v) => setState(() => _depotDepartId = v),
-                validator: (v) => v == null ? 'Sélectionner le dépôt de départ' : null,
-              ),
-              const SizedBox(height: AppSizes.md),
+                const SizedBox(height: AppSizes.md),
+              ],
 
-              // Dépôt arrivée
-              _buildDropdownField<int>(
-                label: 'Dépôt d\'arrivée *',
-                selectedValue: _depotArriveeId,
-                items: depotsAsync.when(
-                  data: (s) => s.depots
-                      .map((d) => DropdownMenuItem(
-                            value: d.id,
-                            child: Text(d.nom, overflow: TextOverflow.ellipsis),
-                          ))
+              // Client : livraison
+              if (_typeMission == 'livraison') ...[
+                _buildDropdownField<int>(
+                  label: 'Client *',
+                  selectedValue: _clientId,
+                  items: _clients
+                      .map((c) => DropdownMenuItem(
+                          value: c['id'] as int,
+                          child: Text(
+                              (c['nom_complet'] ?? c['nom'] ?? '—').toString(),
+                              overflow: TextOverflow.ellipsis)))
                       .toList(),
-                  loading: () => [],
-                  error: (_, __) => [],
+                  isLoading: false,
+                  onChanged: (v) => setState(() => _clientId = v),
+                  validator: (v) => v == null ? 'Sélectionner un client' : null,
                 ),
-                isLoading: depotsAsync.isLoading,
-                onChanged: (v) => setState(() => _depotArriveeId = v),
-                validator: (v) => v == null ? 'Sélectionner le dépôt d\'arrivée' : null,
-              ),
-              const SizedBox(height: AppSizes.md),
+                const SizedBox(height: AppSizes.md),
+              ],
+
+              // Fournisseur : enlèvement
+              if (_typeMission == 'enlevement') ...[
+                _buildDropdownField<int>(
+                  label: 'Fournisseur *',
+                  selectedValue: _fournisseurId,
+                  items: _fournisseurs
+                      .map((f) => DropdownMenuItem(
+                          value: f['id'] as int,
+                          child: Text((f['nom'] ?? '—').toString(),
+                              overflow: TextOverflow.ellipsis)))
+                      .toList(),
+                  isLoading: false,
+                  onChanged: (v) => setState(() => _fournisseurId = v),
+                  validator: (v) => v == null ? 'Sélectionner un fournisseur' : null,
+                ),
+                const SizedBox(height: AppSizes.md),
+              ],
+
+              // Dépôt d'arrivée / destination : transfert + enlèvement
+              if (_typeMission == 'transfert' || _typeMission == 'enlevement') ...[
+                _buildDropdownField<int>(
+                  label: _typeMission == 'enlevement' ? 'Dépôt de destination *' : 'Dépôt d\'arrivée *',
+                  selectedValue: _depotArriveeId,
+                  items: depotsAsync.when(
+                    data: (s) => s.depots
+                        .map((d) => DropdownMenuItem(
+                            value: d.id,
+                            child: Text(d.nom, overflow: TextOverflow.ellipsis)))
+                        .toList(),
+                    loading: () => [],
+                    error: (_, __) => [],
+                  ),
+                  isLoading: depotsAsync.isLoading,
+                  onChanged: (v) => setState(() => _depotArriveeId = v),
+                  validator: (v) => v == null ? 'Sélectionner le dépôt' : null,
+                ),
+                const SizedBox(height: AppSizes.md),
+              ],
 
               // Notes (optionnel)
               TextFormField(
@@ -429,7 +524,10 @@ class _CreateMissionSheetState extends ConsumerState<_CreateMissionSheet> {
                   width: 16, height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2)),
               SizedBox(width: 8),
-              Text('Chargement…'),
+              Flexible(
+                child: Text('Chargement…',
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
             ])
           : null,
       items: items,
@@ -467,11 +565,19 @@ class _CreateMissionSheetState extends ConsumerState<_CreateMissionSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
 
+    // On n'envoie que les champs pertinents au type (le backend valide le reste).
+    final isTransfert = _typeMission == 'transfert';
+    final isLivraison = _typeMission == 'livraison';
+    final isEnlevement = _typeMission == 'enlevement';
+
     final error = await widget.parentRef.read(missionsProvider.notifier).createMission(
           vehiculeId: _vehiculeId!,
           chauffeurId: _chauffeurId!,
-          depotDepartId: _depotDepartId!,
-          depotArriveeId: _depotArriveeId!,
+          typeMission: _typeMission,
+          depotDepartId: (isTransfert || isLivraison) ? _depotDepartId : null,
+          depotArriveeId: (isTransfert || isEnlevement) ? _depotArriveeId : null,
+          clientId: isLivraison ? _clientId : null,
+          fournisseurId: isEnlevement ? _fournisseurId : null,
           notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         );
 

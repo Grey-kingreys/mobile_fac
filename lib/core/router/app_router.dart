@@ -5,7 +5,9 @@ import 'package:djoulagest_mobile/core/di/providers.dart';
 import 'package:djoulagest_mobile/core/router/app_routes.dart';
 import 'package:djoulagest_mobile/features/admin/presentation/screens/admin_screen.dart';
 import 'package:djoulagest_mobile/features/dashboard/presentation/screens/dashboard_screen.dart';
+import 'package:djoulagest_mobile/features/reports/presentation/screens/reports_screen.dart';
 import 'package:djoulagest_mobile/features/finance/presentation/screens/caisse_config_screen.dart';
+import 'package:djoulagest_mobile/features/finance/presentation/screens/caisse_entreprise_config_screen.dart';
 import 'package:djoulagest_mobile/features/finance/presentation/screens/caisses_screen.dart';
 import 'package:djoulagest_mobile/features/finance/presentation/screens/cash_session_screen.dart';
 import 'package:djoulagest_mobile/features/finance/presentation/screens/transactions_screen.dart';
@@ -13,12 +15,14 @@ import 'package:djoulagest_mobile/features/hr/presentation/screens/employees_scr
 import 'package:djoulagest_mobile/features/inventory/presentation/screens/barcode_scan_screen.dart';
 import 'package:djoulagest_mobile/features/inventory/presentation/screens/movements_screen.dart';
 import 'package:djoulagest_mobile/features/inventory/presentation/screens/stock_screen.dart';
+import 'package:djoulagest_mobile/features/inventory/presentation/screens/stock_entree_screen.dart';
 import 'package:djoulagest_mobile/features/inventory/presentation/screens/ajustements_screen.dart';
 import 'package:djoulagest_mobile/features/inventory/presentation/screens/inventaires_screen.dart';
 import 'package:djoulagest_mobile/features/inventory/presentation/screens/transfer_screen.dart';
 import 'package:djoulagest_mobile/features/logistics/presentation/screens/mission_detail_screen.dart';
 import 'package:djoulagest_mobile/features/logistics/presentation/screens/missions_screen.dart';
 import 'package:djoulagest_mobile/features/logistics/presentation/screens/qr_scan_screen.dart';
+import 'package:djoulagest_mobile/features/logistics/presentation/screens/vehicules_screen.dart';
 import 'package:djoulagest_mobile/features/logistics/presentation/screens/signature_screen.dart';
 import 'package:djoulagest_mobile/features/logistics/presentation/screens/logistics_sub_screens.dart';
 import 'package:djoulagest_mobile/features/hr/presentation/screens/attendance_screen.dart';
@@ -47,6 +51,8 @@ import 'package:djoulagest_mobile/features/auth/presentation/screens/two_factor_
 import 'package:djoulagest_mobile/features/auth/presentation/screens/two_factor_setup_screen.dart';
 import 'package:djoulagest_mobile/features/onboarding/presentation/screens/onboarding_screen.dart';
 import 'package:djoulagest_mobile/features/profile/presentation/screens/profile_screen.dart';
+import 'package:djoulagest_mobile/features/settings/presentation/screens/settings_screen.dart';
+import 'package:djoulagest_mobile/features/audit/presentation/screens/audit_logs_screen.dart';
 // ─── RouterNotifier — relie Riverpod auth state ↔ GoRouter ──────────────────
 
 class _RouterNotifier extends ChangeNotifier {
@@ -159,6 +165,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, __) => const DashboardScreen(),
       ),
       GoRoute(
+        path: AppRoutes.reports,
+        builder: (_, __) => const ReportsScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.profile,
         builder: (_, __) => const ProfileScreen(),
         routes: [
@@ -173,11 +183,27 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, __) => const NotificationsScreen(),
       ),
 
+      // ── Paramètres (hub) ─────────────────────────────────────────────────
+      GoRoute(
+        path: AppRoutes.settings,
+        builder: (_, __) => const SettingsScreen(),
+        routes: [
+          GoRoute(
+            path: 'audit-logs',
+            builder: (_, __) => const AuditLogsScreen(),
+          ),
+        ],
+      ),
+
       // ── Stocks ───────────────────────────────────────────────────────────
       GoRoute(
         path: AppRoutes.inventory,
         builder: (_, __) => const StockScreen(),
         routes: [
+          GoRoute(
+            path: 'entree',
+            builder: (_, __) => const StockEntreeScreen(),
+          ),
           GoRoute(
             path: 'movements',
             builder: (_, __) => const MovementsScreen(),
@@ -247,6 +273,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (_, __) => const CaisseConfigScreen(),
           ),
           GoRoute(
+            path: 'caisse-entreprise',
+            builder: (_, __) => const CaisseEntrepriseConfigScreen(),
+          ),
+          GoRoute(
             path: 'versement',
             builder: (_, __) => const _ComingSoonScreen(title: 'Versements'),
           ),
@@ -277,6 +307,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.logistics,
         builder: (_, __) => const MissionsScreen(),
         routes: [
+          GoRoute(
+            path: 'vehicules',
+            builder: (_, __) => const VehiculesScreen(),
+          ),
           GoRoute(
             path: 'qr-scan',
             builder: (_, __) => const QrScanScreen(),
@@ -315,15 +349,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
 
       // ── RH ───────────────────────────────────────────────────────────────
+      // Gestion des comptes (= employés) : admin/superviseur.
       GoRoute(
         path: AppRoutes.hr,
         builder: (_, __) => const EmployeesScreen(),
-        routes: [
-          GoRoute(
-            path: 'attendance',
-            builder: (_, __) => const AttendanceScreen(),
-          ),
-        ],
+      ),
+      // Pointage de présence + congés (self-service) : route top-level distincte
+      // pour ne pas instancier EmployeesScreen (/users/) en parent.
+      GoRoute(
+        path: AppRoutes.attendance,
+        builder: (_, __) => const AttendanceScreen(),
       ),
 
       // ── Produits ─────────────────────────────────────────────────────────

@@ -8,7 +8,9 @@ import 'package:djoulagest_mobile/features/depots/domain/entities/depot_entity.d
 import 'package:djoulagest_mobile/features/depots/presentation/providers/depots_provider.dart';
 import 'package:djoulagest_mobile/features/zones/domain/entities/zone_entity.dart';
 import 'package:djoulagest_mobile/features/zones/presentation/providers/zones_provider.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
+import 'package:djoulagest_mobile/shared/widgets/map_picker_sheet.dart';
 import 'package:djoulagest_mobile/shared/widgets/app_button.dart';
 import 'package:djoulagest_mobile/shared/widgets/app_snackbar.dart';
 import 'package:djoulagest_mobile/shared/widgets/app_text_field.dart';
@@ -468,6 +470,7 @@ class _DepotFormSheetState extends ConsumerState<_DepotFormSheet> {
   late final TextEditingController _nomCtrl;
   late final TextEditingController _codeCtrl;
   late final TextEditingController _adresseCtrl;
+  LatLng? _position;
   int? _selectedZoneId;
   bool _loading = false;
 
@@ -479,6 +482,9 @@ class _DepotFormSheetState extends ConsumerState<_DepotFormSheet> {
     _nomCtrl = TextEditingController(text: widget.depot?.nom ?? '');
     _codeCtrl = TextEditingController(text: widget.depot?.code ?? '');
     _adresseCtrl = TextEditingController(text: widget.depot?.adresse ?? '');
+    if (widget.depot?.latitude != null && widget.depot?.longitude != null) {
+      _position = LatLng(widget.depot!.latitude!, widget.depot!.longitude!);
+    }
     // En édition : pré-remplir la zone existante. En création : forcer un choix explicite.
     _selectedZoneId = widget.depot?.zoneId;
   }
@@ -489,6 +495,11 @@ class _DepotFormSheetState extends ConsumerState<_DepotFormSheet> {
     _codeCtrl.dispose();
     _adresseCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickPosition() async {
+    final result = await MapPickerSheet.show(context, initial: _position);
+    if (result != null) setState(() => _position = result);
   }
 
   Future<void> _submit() async {
@@ -502,6 +513,8 @@ class _DepotFormSheetState extends ConsumerState<_DepotFormSheet> {
     final nom = _nomCtrl.text.trim();
     final code = _codeCtrl.text.trim();
     final adresse = _adresseCtrl.text.trim();
+    final lat = _position?.latitude;
+    final lng = _position?.longitude;
 
     final String? error;
     if (_isEditing) {
@@ -511,6 +524,8 @@ class _DepotFormSheetState extends ConsumerState<_DepotFormSheet> {
             code: code,
             zoneId: _selectedZoneId!,
             adresse: adresse.isEmpty ? null : adresse,
+            latitude: lat,
+            longitude: lng,
           );
     } else {
       error = await ref.read(depotsProvider.notifier).create(
@@ -518,6 +533,8 @@ class _DepotFormSheetState extends ConsumerState<_DepotFormSheet> {
             code: code,
             zoneId: _selectedZoneId!,
             adresse: adresse.isEmpty ? null : adresse,
+            latitude: lat,
+            longitude: lng,
           );
     }
 
@@ -631,8 +648,25 @@ class _DepotFormSheetState extends ConsumerState<_DepotFormSheet> {
                   hint: 'Adresse physique du dépôt',
                   prefixIcon: Icons.place_outlined,
                   enabled: !_loading,
-                  textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) => _submit(),
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: AppSizes.md),
+
+                // Position GPS — sélection sur la carte (pas de saisie manuelle)
+                const Text(
+                  'Position GPS (optionnel)',
+                  style: TextStyle(
+                    fontSize: AppSizes.fontSm,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.gray700,
+                  ),
+                ),
+                const SizedBox(height: AppSizes.xs),
+                _PositionPickerTile(
+                  position: _position,
+                  enabled: !_loading,
+                  onTap: _pickPosition,
+                  onClear: () => setState(() => _position = null),
                 ),
                 const SizedBox(height: AppSizes.xl),
 
@@ -645,6 +679,116 @@ class _DepotFormSheetState extends ConsumerState<_DepotFormSheet> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Tuile sélecteur de position (carte) ──────────────────────────────────────
+
+class _PositionPickerTile extends StatelessWidget {
+  const _PositionPickerTile({
+    required this.position,
+    required this.enabled,
+    required this.onTap,
+    required this.onClear,
+  });
+
+  final LatLng? position;
+  final bool enabled;
+  final VoidCallback onTap;
+  final VoidCallback onClear;
+
+  String _fmt(double v, {required bool isLat}) {
+    final dir = isLat ? (v >= 0 ? 'N' : 'S') : (v >= 0 ? 'E' : 'O');
+    return '${v.abs().toStringAsFixed(5)}° $dir';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPosition = position != null;
+
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSizes.md,
+          vertical: AppSizes.sm + 2,
+        ),
+        decoration: BoxDecoration(
+          color: hasPosition ? AppColors.primaryLightBg : AppColors.gray50,
+          borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+          border: Border.all(
+            color: hasPosition
+                ? AppColors.primary.withValues(alpha: 0.35)
+                : AppColors.gray200,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: hasPosition ? AppColors.primary : AppColors.gray200,
+                borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+              ),
+              child: Icon(
+                hasPosition ? Icons.location_on_rounded : Icons.map_outlined,
+                color: hasPosition ? Colors.white : AppColors.gray500,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: AppSizes.sm),
+            Expanded(
+              child: hasPosition
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Position sélectionnée',
+                          style: TextStyle(
+                            fontSize: AppSizes.fontXs,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${_fmt(position!.latitude, isLat: true)}  •  ${_fmt(position!.longitude, isLat: false)}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: AppSizes.fontXs,
+                            color: AppColors.gray700,
+                          ),
+                        ),
+                      ],
+                    )
+                  : const Text(
+                      'Choisir la position sur la carte',
+                      style: TextStyle(
+                        fontSize: AppSizes.fontSm,
+                        color: AppColors.gray500,
+                      ),
+                    ),
+            ),
+            if (hasPosition)
+              IconButton(
+                icon: const Icon(Icons.close_rounded, size: 18),
+                color: AppColors.gray400,
+                onPressed: enabled ? onClear : null,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              )
+            else
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.gray400,
+                size: 20,
+              ),
+          ],
         ),
       ),
     );

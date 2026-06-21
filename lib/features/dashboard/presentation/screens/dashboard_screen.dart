@@ -7,8 +7,10 @@ import 'package:djoulagest_mobile/features/auth/domain/entities/user_entity.dart
 import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/features/dashboard/domain/entities/kpi_entity.dart';
 import 'package:djoulagest_mobile/features/dashboard/presentation/providers/dashboard_provider.dart';
+import 'package:djoulagest_mobile/features/dashboard/presentation/widgets/dashboard_charts.dart';
 import 'package:djoulagest_mobile/features/dashboard/presentation/widgets/kpi_card.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
+import 'package:djoulagest_mobile/shared/widgets/chart_card.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -86,11 +88,245 @@ class _DashboardBody extends StatelessWidget {
           const SizedBox(height: AppSizes.md),
         ],
 
+        // Graphiques (données de démo pour l'instant)
+        if (user != null) ...[
+          _DashboardCharts(role: user!.role),
+          const SizedBox(height: AppSizes.md),
+        ],
+
         // Accès rapide
         if (user != null) ...[
           _ShortcutsGrid(role: user!.role),
         ],
       ],
+    );
+  }
+}
+
+// ─── Graphiques du tableau de bord ──────────────────────────────────────────────
+
+class _DashboardCharts extends StatelessWidget {
+  const _DashboardCharts({required this.role});
+  final String role;
+
+  static const _days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+
+  @override
+  Widget build(BuildContext context) {
+    final cards = _cardsForRole(role);
+    if (cards.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle('Analyse'),
+        const SizedBox(height: AppSizes.sm),
+        for (var i = 0; i < cards.length; i++) ...[
+          cards[i],
+          if (i != cards.length - 1) const SizedBox(height: AppSizes.md),
+        ],
+      ],
+    );
+  }
+
+  List<Widget> _cardsForRole(String role) {
+    switch (role) {
+      case 'caissier':
+        return [_revenueCard(), _paymentsCard()];
+      case 'gestionnaire_stock':
+        return [_stockByDepotCard(), _movementsCard()];
+      case 'chauffeur':
+        return [_missionStatusCard()];
+      case 'maintenancier':
+        return [_fleetCard()];
+      case 'commercial':
+        return [_revenueCard(), _topClientsCard()];
+      case 'superadmin':
+        return [_companiesGrowthCard(), _companiesStatusCard()];
+      case 'admin':
+      case 'superviseur':
+      default:
+        return [
+          _revenueCard(),
+          _topProductsCard(),
+          _paymentsCard(),
+          _salesByDepotCard(),
+        ];
+    }
+  }
+
+  // — Builders (données codées en dur) —
+
+  Widget _revenueCard() {
+    const values = [3200.0, 4100.0, 3800.0, 5200.0, 4800.0, 6100.0, 5400.0];
+    return ChartCard(
+      title: "Chiffre d'affaires",
+      subtitle: '7 derniers jours',
+      height: 170,
+      child: RevenueLineChart(
+        data: [
+          for (var i = 0; i < _days.length; i++) ChartDatum(_days[i], values[i]),
+        ],
+      ),
+    );
+  }
+
+  Widget _topProductsCard() {
+    return ChartCard(
+      title: 'Top produits',
+      subtitle: 'Quantités vendues (jour)',
+      height: 180,
+      child: const CategoryBarChart(
+        data: [
+          ChartDatum('Riz', 120),
+          ChartDatum('Huile', 90),
+          ChartDatum('Sucre', 75),
+          ChartDatum('Lait', 60),
+          ChartDatum('Farine', 45),
+        ],
+        color: AppColors.secondary,
+      ),
+    );
+  }
+
+  Widget _salesByDepotCard() {
+    return ChartCard(
+      title: 'Ventes par dépôt',
+      subtitle: 'CA du jour (M GNF)',
+      height: 180,
+      child: const CategoryBarChart(
+        data: [
+          ChartDatum('Kaloum', 32),
+          ChartDatum('Matam', 24),
+          ChartDatum('Ratoma', 28),
+          ChartDatum('Coyah', 16),
+        ],
+      ),
+    );
+  }
+
+  Widget _paymentsCard() {
+    const data = [
+      ChartDatum('Espèces', 55),
+      ChartDatum('Orange Money', 28),
+      ChartDatum('MTN Money', 12),
+      ChartDatum('Crédit', 5),
+    ];
+    return ChartCard(
+      title: 'Modes de paiement',
+      subtitle: 'Répartition des encaissements',
+      height: 150,
+      legend: legendFor(data),
+      child: const DonutChart(data: data),
+    );
+  }
+
+  Widget _stockByDepotCard() {
+    return ChartCard(
+      title: 'Niveau de stock',
+      subtitle: 'Unités par dépôt',
+      height: 180,
+      child: const CategoryBarChart(
+        data: [
+          ChartDatum('Kaloum', 850),
+          ChartDatum('Matam', 620),
+          ChartDatum('Ratoma', 740),
+          ChartDatum('Coyah', 410),
+        ],
+      ),
+    );
+  }
+
+  Widget _movementsCard() {
+    const data = [
+      ChartDatum('Entrées', 42),
+      ChartDatum('Sorties', 35),
+      ChartDatum('Transferts', 15),
+      ChartDatum('Ajustements', 8),
+    ];
+    return ChartCard(
+      title: 'Mouvements de stock',
+      subtitle: 'Répartition (7 jours)',
+      height: 150,
+      legend: legendFor(data),
+      child: const DonutChart(data: data),
+    );
+  }
+
+  Widget _missionStatusCard() {
+    const data = [
+      ChartDatum('Terminées', 18),
+      ChartDatum('En transit', 5),
+      ChartDatum('Planifiées', 4),
+      ChartDatum('Litige', 1),
+    ];
+    return ChartCard(
+      title: 'Mes missions',
+      subtitle: 'Par statut (ce mois)',
+      height: 150,
+      legend: legendFor(data),
+      child: const DonutChart(data: data),
+    );
+  }
+
+  Widget _fleetCard() {
+    const data = [
+      ChartDatum('Disponibles', 8),
+      ChartDatum('En mission', 5),
+      ChartDatum('Maintenance', 2),
+    ];
+    return ChartCard(
+      title: 'État de la flotte',
+      subtitle: 'Répartition des véhicules',
+      height: 150,
+      legend: legendFor(data, percent: false),
+      child: const DonutChart(data: data, showPercent: false),
+    );
+  }
+
+  Widget _topClientsCard() {
+    return ChartCard(
+      title: 'Top clients',
+      subtitle: 'CA cumulé (M GNF)',
+      height: 180,
+      child: const CategoryBarChart(
+        data: [
+          ChartDatum('Diallo', 48),
+          ChartDatum('Bah', 36),
+          ChartDatum('Camara', 30),
+          ChartDatum('Sow', 22),
+        ],
+        color: AppColors.purple,
+      ),
+    );
+  }
+
+  Widget _companiesGrowthCard() {
+    const months = ['Déc', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin'];
+    const values = [2.0, 3.0, 3.0, 4.0, 5.0, 6.0, 8.0];
+    return ChartCard(
+      title: 'Croissance entreprises',
+      subtitle: '7 derniers mois',
+      height: 170,
+      child: RevenueLineChart(
+        data: [
+          for (var i = 0; i < months.length; i++)
+            ChartDatum(months[i], values[i]),
+        ],
+      ),
+    );
+  }
+
+  Widget _companiesStatusCard() {
+    const data = [
+      ChartDatum('Actives', 6),
+      ChartDatum('Suspendues', 2),
+    ];
+    return ChartCard(
+      title: 'Statut des entreprises',
+      subtitle: 'Plateforme',
+      height: 150,
+      legend: legendFor(data, percent: false),
+      child: const DonutChart(data: data, showPercent: false),
     );
   }
 }

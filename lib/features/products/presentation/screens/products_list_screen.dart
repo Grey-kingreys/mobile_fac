@@ -1,14 +1,28 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:djoulagest_mobile/core/constants/app_colors.dart';
 import 'package:djoulagest_mobile/core/constants/app_sizes.dart';
+import 'package:djoulagest_mobile/core/errors/app_exception.dart';
 import 'package:djoulagest_mobile/core/network/api_endpoints.dart';
 import 'package:djoulagest_mobile/core/di/providers.dart';
 import 'package:djoulagest_mobile/features/auth/presentation/providers/role_simulation_provider.dart';
 import 'package:djoulagest_mobile/features/products/presentation/providers/products_provider.dart';
 import 'package:djoulagest_mobile/features/products/presentation/widgets/product_card.dart';
 import 'package:djoulagest_mobile/shared/layout/app_scaffold.dart';
+
+String _apiError(dynamic e) {
+  if (e is DioException && e.error is AppException) {
+    final ex = e.error as AppException;
+    if (ex is ValidationException && ex.fieldErrors.isNotEmpty) {
+      final entry = ex.fieldErrors.entries.first;
+      return '${entry.key} : ${entry.value.first}';
+    }
+    return ex.message;
+  }
+  return e.toString();
+}
 
 class ProductsListScreen extends ConsumerStatefulWidget {
   const ProductsListScreen({super.key});
@@ -213,6 +227,7 @@ class _CreateProductSheetState extends ConsumerState<_CreateProductSheet> {
   final _formKey = GlobalKey<FormState>();
   final _nomCtrl = TextEditingController();
   final _refCtrl = TextEditingController();
+  final _codeBarreCtrl = TextEditingController();
   final _prixAchatCtrl = TextEditingController();
   final _prixVenteCtrl = TextEditingController();
   final _seuilCtrl = TextEditingController();
@@ -221,7 +236,6 @@ class _CreateProductSheetState extends ConsumerState<_CreateProductSheet> {
   List<Map<String, dynamic>> _unites = [];
   int? _categorieId;
   int? _uniteId;
-  double _tvaTaux = 0.0;
   bool _estPerimable = false;
   bool _loadingDropdowns = true;
   bool _isSaving = false;
@@ -236,6 +250,7 @@ class _CreateProductSheetState extends ConsumerState<_CreateProductSheet> {
   void dispose() {
     _nomCtrl.dispose();
     _refCtrl.dispose();
+    _codeBarreCtrl.dispose();
     _prixAchatCtrl.dispose();
     _prixVenteCtrl.dispose();
     _seuilCtrl.dispose();
@@ -279,11 +294,12 @@ class _CreateProductSheetState extends ConsumerState<_CreateProductSheet> {
         data: {
           'nom': _nomCtrl.text.trim(),
           'reference': _refCtrl.text.trim(),
+          if (_codeBarreCtrl.text.trim().isNotEmpty)
+            'code_barre': _codeBarreCtrl.text.trim(),
           'prix_achat': double.parse(_prixAchatCtrl.text.replaceAll(',', '.')),
           'prix_vente': double.parse(_prixVenteCtrl.text.replaceAll(',', '.')),
           'categorie': _categorieId,
           'unite': _uniteId,
-          'tva_taux': _tvaTaux,
           if (_seuilCtrl.text.isNotEmpty)
             'seuil_alerte': int.tryParse(_seuilCtrl.text),
           'est_perimable': _estPerimable,
@@ -304,7 +320,7 @@ class _CreateProductSheetState extends ConsumerState<_CreateProductSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur : $e'),
+              content: Text(_apiError(e)),
               backgroundColor: AppColors.danger),
         );
       }
@@ -366,6 +382,18 @@ class _CreateProductSheetState extends ConsumerState<_CreateProductSheet> {
                 ),
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Requis' : null,
+              ),
+              const SizedBox(height: AppSizes.sm),
+
+              // ── Code-barres (optionnel) ───────────────────────────────
+              TextFormField(
+                controller: _codeBarreCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Code-barres (optionnel)',
+                  hintText: 'EAN/UPC imprimé sur l\'emballage — pour le scan',
+                  border: OutlineInputBorder(),
+                ),
               ),
               const SizedBox(height: AppSizes.sm),
 
@@ -456,22 +484,6 @@ class _CreateProductSheetState extends ConsumerState<_CreateProductSheet> {
               ),
               const SizedBox(height: AppSizes.sm),
 
-              // ── Taux TVA ──────────────────────────────────────────────
-              DropdownButtonFormField<double>(
-                initialValue: _tvaTaux,
-                decoration: const InputDecoration(
-                  labelText: 'Taux TVA',
-                  border: OutlineInputBorder(),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 0.0, child: Text('0 % (exonéré)')),
-                  DropdownMenuItem(value: 18.0, child: Text('18 %')),
-                  DropdownMenuItem(value: 20.0, child: Text('20 %')),
-                ],
-                onChanged: (v) => setState(() => _tvaTaux = v ?? 0.0),
-              ),
-              const SizedBox(height: AppSizes.sm),
-
               // ── Seuil alerte ──────────────────────────────────────────
               TextFormField(
                 controller: _seuilCtrl,
@@ -488,11 +500,23 @@ class _CreateProductSheetState extends ConsumerState<_CreateProductSheet> {
               Row(
                 children: [
                   const Expanded(
-                    child: Text(
-                      'Produit périmable',
-                      style: TextStyle(
-                          color: AppColors.gray700,
-                          fontSize: AppSizes.fontSm),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Produit périmable (FEFO)',
+                          style: TextStyle(
+                              color: AppColors.gray700,
+                              fontSize: AppSizes.fontSm),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Les dates de péremption se saisissent par lot, à l\'entrée de stock.',
+                          style: TextStyle(
+                              color: AppColors.gray400,
+                              fontSize: AppSizes.fontXs),
+                        ),
+                      ],
                     ),
                   ),
                   Switch(
@@ -501,6 +525,34 @@ class _CreateProductSheetState extends ConsumerState<_CreateProductSheet> {
                     activeThumbColor: AppColors.primary,
                   ),
                 ],
+              ),
+              const SizedBox(height: AppSizes.md),
+
+              // ── Note : TVA + quantité gérées ailleurs ─────────────────
+              Container(
+                padding: const EdgeInsets.all(AppSizes.sm),
+                decoration: BoxDecoration(
+                  color: AppColors.infoLightBg,
+                  borderRadius: BorderRadius.circular(AppSizes.radiusSm),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline_rounded,
+                        size: 16, color: AppColors.info),
+                    SizedBox(width: AppSizes.xs),
+                    Expanded(
+                      child: Text(
+                        'La TVA est définie par catégorie. La quantité en stock '
+                        's\'ajoute par dépôt via une entrée de stock '
+                        '(approvisionnement), pas ici.',
+                        style: TextStyle(
+                            color: AppColors.gray600,
+                            fontSize: AppSizes.fontXs),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: AppSizes.lg),
 

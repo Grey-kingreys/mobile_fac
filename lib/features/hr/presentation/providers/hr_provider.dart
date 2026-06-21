@@ -213,11 +213,36 @@ class PresencesNotifier extends AsyncNotifier<PresencesState> {
     await ref.read(hrRepositoryProvider).createPresence(body);
     await refresh();
   }
+
+  /// Pointage self-service géolocalisé. Retourne la présence créée.
+  /// Le pointage HTTP a déjà réussi quand on rafraîchit ; un échec de refresh
+  /// (liste/statut) ne doit pas être confondu avec un échec de pointage.
+  Future<PresenceEntity> pointer(double latitude, double longitude) async {
+    final presence = await ref.read(hrRepositoryProvider).pointerPresence({
+      'latitude': latitude,
+      'longitude': longitude,
+    });
+    try {
+      ref.invalidate(myPresenceProvider);
+      await refresh();
+    } catch (_) {/* le pointage a réussi ; on ignore un éventuel échec de refresh */}
+    return presence;
+  }
 }
 
 final presencesProvider =
     AsyncNotifierProvider<PresencesNotifier, PresencesState>(
         PresencesNotifier.new);
+
+/// État du pointage du jour de l'utilisateur connecté (pilote la carte self-service).
+final myPresenceProvider = FutureProvider.autoDispose<PresenceTodayStatus>(
+  (ref) => ref.read(hrRepositoryProvider).getPresenceAujourdhui(),
+);
+
+/// Récap présences/absences du jour (admin/superviseur).
+final presenceRecapProvider = FutureProvider.autoDispose<PresenceRecap>(
+  (ref) => ref.read(hrRepositoryProvider).getPresenceRecap(),
+);
 
 // ─── Congés ───────────────────────────────────────────────────────────────────
 
@@ -319,8 +344,8 @@ class CongesNotifier extends AsyncNotifier<CongesState> {
     await refresh();
   }
 
-  Future<void> refuser(int id) async {
-    await ref.read(hrRepositoryProvider).refuserConge(id);
+  Future<void> refuser(int id, {String? motif}) async {
+    await ref.read(hrRepositoryProvider).refuserConge(id, motif: motif);
     await refresh();
   }
 }

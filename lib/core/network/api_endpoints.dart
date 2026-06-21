@@ -22,6 +22,7 @@ abstract class ApiEndpoints {
   static const String users = '/users/';
   static String userDetail(int id) => '/users/$id/';
   static String userResetPassword(int id) => '/users/$id/reset-password/';
+  static String userSupprimer(int id) => '/users/$id/supprimer/';
   static const String auditLogs = '/audit-logs/';
   static const String loginLogs = '/login-logs/';
 
@@ -109,6 +110,7 @@ abstract class ApiEndpoints {
   static String caisseZoneFermer(int id) => '/caisses-zone/$id/fermer/';
   static const String caisseEntreprise = '/caisse-entreprise/';
   static const String caisseEntrepriseMe = '/caisse-entreprise/me/';
+  static const String caisseEntrepriseConfigurer = '/caisse-entreprise/configurer/';
   static const String caissesConsolidation = '/caisses/consolidation/';
   static const String configurationCaisses = '/configuration-caisses/';
   static const String sessionsCaisse = '/sessions-caisse/';
@@ -157,6 +159,9 @@ abstract class ApiEndpoints {
   static String employeDocuments(int id) => '/employes/$id/documents/';
   static String employeAffectations(int id) => '/employes/$id/affectations/';
   static const String presences = '/presences/';
+  static const String presencePointer = '/presences/pointer/';
+  static const String presenceAujourdhui = '/presences/aujourdhui/';
+  static const String presenceRecap = '/presences/recap/';
   static String presenceDetail(int id) => '/presences/$id/';
   static const String conges = '/conges/';
   static String congeDetail(int id) => '/conges/$id/';

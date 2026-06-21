@@ -1,5 +1,11 @@
 import 'package:djoulagest_mobile/features/inventory/domain/entities/stock_entity.dart';
 
+// DRF renvoie les DecimalField en string → parsing robuste (un cast `as num`
+// planterait toute la liste : « impossible de charger »).
+num _num(dynamic v) => v is num ? v : (num.tryParse(v?.toString() ?? '') ?? 0);
+num? _numN(dynamic v) =>
+    v == null ? null : (v is num ? v : num.tryParse(v.toString()));
+
 abstract class MovementModel {
   static MovementEntity fromJson(Map<String, dynamic> json) {
     return MovementEntity(
@@ -11,9 +17,9 @@ abstract class MovementModel {
       produitNom: json['produit_nom'] as String? ?? '',
       typeMouvement: json['type_mouvement'] as String? ?? 'entree',
       typeLabel: json['type_label'] as String? ?? '',
-      quantite: (json['quantite'] as num?) ?? 0,
-      quantiteAvant: json['quantite_avant'] as num?,
-      quantiteApres: json['quantite_apres'] as num?,
+      quantite: _num(json['quantite']),
+      quantiteAvant: _numN(json['quantite_avant']),
+      quantiteApres: _numN(json['quantite_apres']),
       referenceDoc: json['reference_doc'] as String?,
       motif: json['motif'] as String?,
       utilisateurNom: json['utilisateur_nom'] as String?,
@@ -33,7 +39,7 @@ abstract class AjustementModel {
       depotCode: json['depot_code'] as String? ?? '',
       produit: json['produit'] as int? ?? 0,
       produitNom: json['produit_nom'] as String? ?? '',
-      quantite: (json['quantite'] as num?) ?? 0,
+      quantite: _num(json['quantite']),
       motif: json['motif'] as String?,
       statut: json['statut'] as String? ?? 'en_attente',
       statutLabel: json['statut_label'] as String? ?? '',

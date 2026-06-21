@@ -32,7 +32,9 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 
 final isAuthenticatedProvider = FutureProvider<bool>((ref) async {
   final storage = ref.read(secureStorageProvider);
-  return storage.hasValidToken();
+  // hasSession() : connecté tant qu'un refresh token valide existe (l'access
+  // expiré sera rafraîchi au 1er 401) — évite la déconnexion toutes les 60 min.
+  return storage.hasSession();
 });
 
 // ─── Onboarding ────────────────────────────────────────────────────────────

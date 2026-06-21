@@ -88,6 +88,7 @@ class SalesRemoteDatasource {
     num montantPaye = 0,
     String? modePaiementInitial,
     String? referencePaiement,
+    int? compteMobileMoney,
     String? notes,
   }) async {
     final body = <String, dynamic>{
@@ -104,6 +105,9 @@ class SalesRemoteDatasource {
     }
     if (referencePaiement != null && referencePaiement.isNotEmpty) {
       body['reference_paiement'] = referencePaiement;
+    }
+    if (compteMobileMoney != null) {
+      body['compte_mobile_money'] = compteMobileMoney;
     }
 
     final resp =
